@@ -3,6 +3,9 @@ title = "About Me"
 template = "me.html"
 +++
 
-`foobar`
+I'm Sebastian Imlay, I write rust usually in odd places and for odd things.
 
-`baz`
+You can find me at:
+on (github)[github.com/simlay]
+* twitter.com/sebimlay
+
