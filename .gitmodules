@@ -1,0 +1,4 @@
+[submodule "themes/zerm"]
+	path = themes/zerm
+	url = https://github.com/simlay/zerm.git
+	branch = simlay-edits

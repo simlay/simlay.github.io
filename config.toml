@@ -11,5 +11,27 @@ highlight_code = true
 # Whether to build a search index to be used later on by a JavaScript library
 build_search_index = false
 
-[extra]
+theme = "zerm"
+
+taxonomies = [
+    # You can enable/disable RSS
+    {name = "categories", rss = true},
+    {name = "tags", rss = true},
+]
+
 # Put all your custom variables here
+[extra]
+
+# Zerm
+author = "Sebastian Imlay"
+show_author = false
+show_tags = true
+show_categories = true
+theme_color = "blue"
+main_menu = [
+    {url="/me/", name="me"},
+]
+logo_text = "simlay"
+
+# Link in logo. Default returns you to $BASE_URL.
+#logo_home_link = "/"

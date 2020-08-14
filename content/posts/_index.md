@@ -1,8 +1,5 @@
 +++
-title = "My posts"
-sort_by = "date"
-template = "blog.html"
-page_template = "blog-page.html"
+transparent = true
+render = false
+insert_anchor_links = "right"
 +++
-
-foobar
