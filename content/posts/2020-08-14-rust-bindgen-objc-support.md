@@ -11,13 +11,12 @@ pitfalls of generating objective-c bindings.
 
 I got into this rather niche topic because I used to work on a react-native app
 and found the build system to be too fragile and wanted to have some of the
-stability that rust has. I spent a little bit of time looking at
+stability that rust offers. I spent a little bit of time looking at
 [SSheldon/rust-uikit](https://github.com/SSheldon/rust-uikit) but it became
-clear that this would be all by hand, too brittle and too
-much work. So, I stumbled upon the mild objective-c support in rust-bindgen and
+clear that this would rather manual and still rather brittle. So, I stumbled upon the mild objective-c support in rust-bindgen and
 have been [adding more features since](https://github.com/rust-lang/rust-bindgen/pulls?q=is%3Apr+author%3Asimlay).
 
-Usage of a objective-c sys crate will be saved for another post though.
+Usage of the uikit-sys crate will be saved for another post.
 
 # Setting up the project
 
@@ -110,9 +109,9 @@ let out_dir = env::var_os("OUT_DIR").unwrap();
 are needed.
 
 Then we need to turn `arch64-apple-ios` into `arm64-apple-ios` because the
-clang tripple don't match. Once
+clang triple doesn't match. Once
 [rust-lang/rust-bindgen#1211](https://github.com/rust-lang/rust-bindgen/issues/1211)
-is resolved, this won't be needed.
+is resolved, this bit won't be needed:
 ```rust
 let target = if target == "aarch64-apple-ios" {
     "arm64-apple-ios"
@@ -123,16 +122,16 @@ let target = if target == "aarch64-apple-ios" {
 
 ## Getting the sysroot
 
-Following this, you'll notice that I've hardcoded the `sdk_path`:
+Following this, you'll notice that I've hard coded the `sdk_path`:
 ```rust
 let sdk_path = "/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS13.6.sdk";
 ```
-I'm taking a shortcut here for the purposes of this post but this is
-effectively the command `xcrun --sdk iphoneos --show-sdk-path`. Doing this
-right, you should look at the `TARGET` tripple and see if it's prefixed with
-`x86_64`, and then use `iphonesimulator` rather than `iphoneos` and use rust's
+I'm taking a shortcut here for the purposes of brevity but this is effectively
+the command `xcrun --sdk iphoneos --show-sdk-path`. Doing this right, you
+should look at the `TARGET` triple, if it's prefixed with `x86_64`, use
+`iphonesimulator` rather than `iphoneos`. This should be done with
 [`std::process::Command`](https://doc.rust-lang.org/std/process/struct.Command.html)
-in your build script as this path changes with the Xcode/iPhone SDK version.
+in your build script because this path changes with the Xcode/iPhone SDK version.
 [This is I did it for
 uikit-sys](https://github.com/simlay/uikit-sys/blob/1ee18440547de342aa2530d04d0dda82313fcc55/build.rs#L3-L25).
 
@@ -221,14 +220,14 @@ objective-c calls from `NSCalendar.h` in the Foundation framework.
 `dividerImageForLeftSegmentState_rightSegmentState_` are documented at
 [rust-lang/rust-bindgen#1705](https://github.com/rust-lang/rust-bindgen/issues/1705).
 * `objc_object` is a bit odd and is because [`Object`doesn't implement
-`Copy`](http://sasheldon.com/rust-objc/objc/runtime/struct.Object.html).
+`Copy`](http://sasheldon.com/rust-objc/objc/runtime/struct.Object.html). If you look at the generation, it's not used anywhere else so it's safe to say that you don't really need it.
 
 This is a much smaller list than I had when I first started this project due to
 some of the fixes I added to bindgen.
 
 # Let's build it!
 
-To make build the whole thing, we now run `cargo build --target
+To build this whole thing, we now run `cargo build --target
 aarch64-apple-ios` and wait for an unfortunately long time. The long compile
 time is because UIKit relies on a number of other Objective-c frameworks.
 
