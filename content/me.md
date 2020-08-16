@@ -6,4 +6,4 @@ I'm Sebastian Imlay, I've been writing software for a few years now. Lately, I'v
 
 You can find me at:
 * [github.com/simlay](https://github.com/simlay)
-* [twitter.com/sebimlay](https://twitter.com/simlay)
+* [@sebimlay](https://twitter.com/simlay)
