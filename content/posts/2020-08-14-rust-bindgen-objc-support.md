@@ -201,7 +201,7 @@ that prfix the generation with `extern crate objc` and ` extern
 crate block`.
 
 
-### Block lists
+### Blacklists
 So, this is one of the more annoying issues with generating bindings that one can pretty
 much only learn by trial and error. If you uncomment any of these you will
 almost certainly have an error:
