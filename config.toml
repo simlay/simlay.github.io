@@ -19,6 +19,7 @@ taxonomies = [
     {name = "tags", rss = true},
 ]
 title = "simlay"
+description = "The home of simlay.net"
 
 # Put all your custom variables here
 [extra]
@@ -36,6 +37,7 @@ logo_text = "simlay"
 google_analytics = { enabled = true, id = "UA-44653605-1"}
 goatcounter_code = "simlay"
 read_more = "read more"
+og_preview_img = "simlay.png"
 
 # Link in logo. Default returns you to $BASE_URL.
 #logo_home_link = "/"
