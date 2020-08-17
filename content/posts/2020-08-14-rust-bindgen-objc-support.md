@@ -1,6 +1,7 @@
 +++
 title = "Using bindgen to generate Rust bindings for Objective-c"
 date = 2020-08-14
+description = "This is a tutorial how to build uikit-sys using bindgen and how to avoid some of the pitfalls of generating objective-c bindings."
 +++
 
 # Introduction
