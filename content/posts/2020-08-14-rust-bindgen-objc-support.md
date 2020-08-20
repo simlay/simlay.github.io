@@ -232,7 +232,7 @@ To build this whole thing, we now run `cargo build --target
 aarch64-apple-ios` and wait for an unfortunately long time. The long compile
 time is because UIKit relies on a number of other Objective-c frameworks.
 
-You can find the code for this exact example at [github.com/simlay/uikit-sys-blog-post](https://github.com/simlay/uikit-sys-blog-post).
+You can find the code for this exact example in the [build-uikit-sys directory of github.com/simlay/blog-post-examples](https://github.com/simlay/blog-post-examples/tree/master/2020-08-14-build-uikit-sys).
 
 # So, what have we built?
 
