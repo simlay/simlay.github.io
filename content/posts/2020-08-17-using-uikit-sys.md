@@ -32,8 +32,8 @@ Many have written about doing this but let's do it again
 
 `cargo new --lib use-uikit-sys` but you can name it whatever you
 want. I'm naming it this way because it matches the directory in my
-(simlay/blog-post-examples repo under the use-uikit-sys
- directory)[https://github.com/simlay/blog-post-examples/tree/master/2020-08-17-use-uikit-sys].
+[simlay/blog-post-examples repo under the use-uikit-sys
+ directory](https://github.com/simlay/blog-post-examples/tree/master/2020-08-17-use-uikit-sys).
 
 Then you need to add `winit` and `uikit-sys` as dependencies but I like to also
 add logging facilities as well. Your `Cargo.toml` should look something like:
@@ -99,7 +99,7 @@ fn main() {
 ```
 
 Then add a `package.metadata.bundle.example.uikit` section to your
-`Cargo.toml`. Your `Cargo.toml should now look like:
+`Cargo.toml`. Your `Cargo.toml` should now look like:
 ```toml
 [package]
 name = "use-uikit-sys-blog-post"
@@ -152,7 +152,8 @@ The app has started!
 Where in this case, `53589` is the PID of the app and `The app has started!` is
 from the `println!` in the code above. Going over to the iOS simulator, you'll
 notice that it's entirely blank. This is because we have literally nothing for
-view. That's in TODO: another section
+view. That's in the [Adding some stuff to the
+view](#adding-some-stuff-to-the-view) below.
 
 ## Using `xcodegen` to bundle an iOS app.
 
@@ -245,7 +246,7 @@ This describes the project layout to `xcodegen` which then generates an Xcode pr
 [`Info.plist` is for the iOS app
 metadata](https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Introduction/Introduction.html),
 [`build_rust_deps.sh`](https://github.com/simlay/blog-post-examples/blob/2b9a3abdd1ac71342c168772e408159c6db7b0e8/2020-08-17-use-uikit-sys/build_rust_deps.sh#L8)
-really just wraps `cargo lipo`
+really just wraps `cargo lipo`,
 `bindings.h` contains only `void run_app(void);` and `main.m` has:
 ```c
 #import "bindings.h"
@@ -255,7 +256,7 @@ int main() {
     return 0;
 }
 ```
-This is the only bit of non-rust programming in this project. You can find the
+This is the only bit of non-rust programming in this project.
 
 For now, `bindings.h` is hardcoded to match the function from `src/lib.rs` but
 if you want to do this correctly, I recommend adding `build.rs` to your crate,
@@ -288,8 +289,8 @@ One annoying thing about doing it via the `xcodebuild` command shown above is
 that the
 `-destination 'platform=iOS Simulator,name=iPhone SE (2nd generation),OS=13.6'`
 argument changes with new updates to iPhones and
-iOS versions. Someday, I or someone will figure out a nice way of getting that
-argument from `xcrun simctl`.
+iOS versions. Someday I or someone will figure out a nice way of getting that
+argument from `xcrun simctl` but for now we hard code it.
 
 # Adding some stuff to the view
 
