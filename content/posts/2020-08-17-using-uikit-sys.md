@@ -2,7 +2,6 @@
 title = "Building an (almost entirely) rust iOS app using uikit-sys."
 date = 2020-08-17
 description = "So, you really wanna build an iOS app in Rust..."
-draft = true
 +++
 
 # Introduction
