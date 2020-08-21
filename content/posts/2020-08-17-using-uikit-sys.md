@@ -1,13 +1,13 @@
 +++
-title = "Using uikit-sys in a (almost entirely) rust iOS app"
+title = "Building an (almost entirely) rust iOS app using uikit-sys."
 date = 2020-08-17
-description = "A guide on how to use uikit-sys"
+description = "So, you really wanna build an iOS app in Rust..."
 draft = true
 +++
 
 # Introduction
 
-In my last post, I showed how one could [use bindgen to generate Rust bindings
+In my last post, we learned how one could [use bindgen to generate Rust bindings
 for an Objective-c framework](2020-08-14-rust-bindgen-objc-support) but didn't
 show you how to use them. In this post, I show how to actually use those. This
 will involve:
@@ -22,9 +22,10 @@ and [`xcodegen`](https://github.com/yonaskolb/XcodeGen)
 
 **disclosure**: Some of the `unsafe` rust in this post will have memory leaks.
 There's been some [controversy about unsafe
-rust](https://steveklabnik.com/writing/a-sad-day-for-rust) and I want to say
-that writing a safe wrapper for unsafe rust is important to me.  I've spent a lot of time thinking about how build a safe wrapper for `uikit-sys` and as
-of writing this post, I've not yet figured it out.
+rust](https://steveklabnik.com/writing/a-sad-day-for-rust). I want to say that
+writing a safe wrapper for unsafe rust is important to me and I've spent a lot
+of time thinking about how build a safe wrapper for `uikit-sys`. As of writing
+this post, I've not yet figured it out.
 
 # Setup
 
@@ -32,9 +33,11 @@ Many have written about doing this but let's do it again
 
 `cargo new --lib use-uikit-sys` but you can name it whatever you
 want. I'm naming it this way because it matches the directory in my
-(simlay/blog-post-examples repo under the use-uikit-sys directory)[https://github.com/simlay/blog-post-examples/tree/master/2020-08-17-use-uikit-sys].
+(simlay/blog-post-examples repo under the use-uikit-sys
+ directory)[https://github.com/simlay/blog-post-examples/tree/master/2020-08-17-use-uikit-sys].
 
-Then you need to add `winit` and `uikit-sys` as dependencies but I like to also add logging facilities as well. Your `Cargo.toml` should look something like:
+Then you need to add `winit` and `uikit-sys` as dependencies but I like to also
+add logging facilities as well. Your `Cargo.toml` should look something like:
 ```toml
 [package]
 name = "use-uikit-sys-blog-post"
@@ -47,7 +50,9 @@ uikit-sys = { git = "https://github.com/simlay/uikit-sys" }
 winit = "0.22.2"
 ```
 
-To get started with `winit`, do exactly what's on their [current guide](https://crates.io/crates/winit/0.22.2). So, your `src/lib.rs` should look like:
+To get started with `winit`, do exactly what's on their [current
+guide](https://crates.io/crates/winit/0.22.2). So, your `src/lib.rs` should
+look like:
 ```rust
 use winit::{
     event::{Event, WindowEvent, StartCause},
@@ -84,7 +89,8 @@ bundle an app but it's got some
 field](https://doc.rust-lang.org/cargo/reference/manifest.html#the-description-field)
 in your `Cargo.toml` which isn't there by default.
 
-First off, you need an example to run in your bundle so you need to add `mkdir examples` and then put the following in `examples/uikit.rs`:
+First off, you need an example to run in your bundle so you need to add `mkdir
+examples` and then put the following in `examples/uikit.rs`:
 ```rust
 use my_uikit_sys_app::run_app;
 
@@ -93,7 +99,8 @@ fn main() {
 }
 ```
 
-Then add a `package.metadata.bundle.example.uikit` section to your `Cargo.toml`. Your `Cargo.toml should now look like:
+Then add a `package.metadata.bundle.example.uikit` section to your
+`Cargo.toml`. Your `Cargo.toml should now look like:
 ```toml
 [package]
 name = "use-uikit-sys-blog-post"
@@ -160,7 +167,7 @@ than `cargo-bundle` but worth it.
 
 Anyway, first off [install
 `xcodegen`](https://github.com/yonaskolb/XcodeGen#installing) and
-[`cargo-lipo](https://github.com/TimNN/cargo-lipo), then you'll have to turn
+[`cargo-lipo`](https://github.com/TimNN/cargo-lipo), then you'll have to turn
 your crate into a
 [`staticlib`](https://doc.rust-lang.org/reference/linkage.html) by adding this
 to your `Cargo.toml`:
@@ -474,11 +481,112 @@ might end up with some undefined behavior. When I [originally wrote this
 example](https://github.com/simlay/blog-post-examples/blob/2b9a3abdd1ac71342c168772e408159c6db7b0e8/2020-08-17-use-uikit-sys/src/lib.rs#L65-L73),
 I had the `CString` logic in the unsafe block.
 
+So, the question here is "when `initWithBytes_length_encoding_` is called, does
+it take ownership? Otherwise will there be a memory leak?". If we look at
+[`objc-foundation`](https://github.com/SSheldon/rust-objc-foundation/blob/15f9ebec1190889e48a4bc2d36601e61d303071f/src/string.rs#L53-L63)
+and
+[`core-foundation`](https://github.com/servo/core-foundation-rs/blob/69c09ab8fda5f84c795354fa664132211f755e7e/cocoa-foundation/src/foundation.rs#L624-L629),
+these implementations imply that the memory is copied when passed to the
+Objective-c side. I've failed at finding a place where it explicitly says it
+copies the bytes on the objective-c side but if
+[`initWithBytesNoCopy:length:encoding:freeWhenDone:`](https://developer.apple.com/documentation/foundation/nsstring/1413830-initwithbytesnocopy?language=objc)
+doesn't copy the bytes and optionally frees it, that implies that
+[`initWithBytes:length:encoding:`](https://developer.apple.com/documentation/foundation/nsstring/1407339-initwithbytes?language=objc)
+does copy the bytes.
+
+### Will this leak memory?
+
+So, what happens if we call `add_label` multiple times? Well, in short, it
+currently leaves the memory allocated and the objective-c side of the FFI
+leaves this as a dangling pointer. We should definitely feel bad about it but I
+or someone else will write posts or add better memory management into bindgen
+for this issue.
+
+# UITextView
+
+Now, let's add a text field. In the past, I've made
+[`iced`](https://github.com/hecrj/iced/pull/57) work on iOS but there was no
+keyboard input and makes it a little hard to use.
+
+Let's put a `add_text_view` call in the `Event::NewEvents(StartCause::Init)` branch of the main event loop in winit [similar to above](#uilabel):
+```rust
+Event::NewEvents(StartCause::Init) => {
+    add_label("THIS IS SOME TEXT".to_string(), root_view);
+    add_text_view(root_view);
+    println!("The app has started!");
+},
+```
+And add a `add_text_view` function:
+```rust
+fn add_text_view(root_view: UIView) {
+    use uikit_sys::{
+        CGRect,
+        CGPoint,
+        CGSize,
+        UITextView,
+        IUITextView,
+        UIView_UIViewHierarchy,
+        UIView_UIViewGeometry,
+        INSObject,
+    };
+    let _textview = unsafe {
+        let ui_textview = {
+            let view = UITextView(UITextView::alloc().init());
+            view.setFrame_(CGRect {
+                origin: CGPoint {
+                    x: 20.0,
+                    y: 50.0,
+                },
+                size: CGSize {
+                    width: 200.0,
+                    height: 40.0,
+                },
+            });
+            root_view.addSubview_(UIView(view.0));
+            view
+        };
+        ui_textview
+    };
+}
+```
+
+Now when you bundle the app you will have something like:
+
+![](../../posts/2020-08-17-using-uikit-sys/uilabel-and-uitextview.png)
 
 
+To describe this section, is actually much easier than the [`UILabel`
+section](#uilabel) but mostly because a lot of it is the same idea. We're not
+passing in pointers to `CStrings`, we're passing in some structs for the
+geometry of the frame across the FFI. Similar to the last section, we've just
+thrown memory collection out the window for now.
 
-# Thoughts on using UIKit with Rust
+
+# Thoughts on uikit-sys
+
 The most annoying thing about this development is that you will need to read
 both the Apple's UIKit docs and the generated docs from `uikit-sys`.  There are
 plenty of comments in the objective-c headers but adding them in the generated
 rust isn't so much an option.
+
+Due to the nature of working on such an obscure subject, I have been [passing
+the buck](https://idioms.thefreedictionary.com/pass+the+buck) on the
+topic until this post. [Apple has recommendations
+page](https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/MemoryMgmt/Articles/MemoryMgmt.html#//apple_ref/doc/uid/10000011-SW1)
+which I think the objective-c features `retain` and `relaese `could actually
+match well with `Clone` and `Drop` in rust.
+
+# Closing thoughts
+
+So, this is a way you could in theory build an iOS app. It's missing a lot.
+Things like the text input events are missing, updating different events are
+missing, basic memory management like if you were trying to burn the bits. Because of this, I cannot
+say that I would recommend `uikit-sys` over
+[SwiftUI](https://developer.apple.com/documentation/swiftui) or just plane ol'
+objective-c and UIKit.  From what I can tell, this is the first time someone's
+tried this hard not to build an iOS app using so few of the apple recommended
+libraries.
+
+What we (or maybe just I) should do is use `uikit-sys` in something like
+[`iced`](https://github.com/hecrj/iced) which would make that something similar
+to a mobile-friendly-cross-platform GUI crate. I will leave that guide for another time :)
