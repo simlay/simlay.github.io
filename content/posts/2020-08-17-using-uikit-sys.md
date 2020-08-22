@@ -290,7 +290,7 @@ that the
 `-destination 'platform=iOS Simulator,name=iPhone SE (2nd generation),OS=13.6'`
 argument changes with new updates to iPhones and
 iOS versions. Someday I or someone will figure out a nice way of getting that
-argument from `xcrun simctl` but for now we hard code it.
+argument from `xcrun simctl list` but for now we hard code it.
 
 # Adding some stuff to the view
 
@@ -314,7 +314,7 @@ And then once you've created the window you need to get the root view via:
 ```rust
     let root_view: UIView = UIView(window.ui_view() as id);
     unsafe {
-        root_view.setBackgroundColor_(UIColor::yellow());
+        root_view.setBackgroundColor_(UIColor::yellowColor());
     }
 
 ```
