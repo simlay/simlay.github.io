@@ -41,7 +41,7 @@ add logging facilities as well. Your `Cargo.toml` should look something like:
 [package]
 name = "use-uikit-sys-blog-post"
 version = "0.1.0"
-authors = ["Sebastian Imlay <sebastian.imlay@gmail.com>"]
+authors = ["Sebastian Imlay <my-email@gmail.com>"]
 edition = "2018"
 
 [dependencies]
@@ -104,7 +104,7 @@ Then add a `package.metadata.bundle.example.uikit` section to your
 [package]
 name = "use-uikit-sys-blog-post"
 version = "0.1.0"
-authors = ["Sebastian Imlay <sebastian.imlay@gmail.com>"]
+authors = ["Sebastian Imlay <my-email@gmail.com>"]
 edition = "2018"
 description = ""
 
