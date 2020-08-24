@@ -28,4 +28,5 @@ written more (and probably better posts) about this but in general, MRR is
 where when you `` a given allocation, you do a `retain` and when you
 `Drop` (maybe it goes out of scope) that instance, you do a `release`. If the
 `retentionCount` goes below zero, the object is automatically deallocated. So,
-it would be quite nice if our generated rust objects could manage their own memory. Let's give it a try.
+it would be quite nice if our generated rust objects could manage their own
+memory. Let's give it a try.

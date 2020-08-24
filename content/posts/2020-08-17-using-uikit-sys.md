@@ -377,7 +377,7 @@ to assign things, bindgen gives you `setFoo_` for a property `Foo` that is not `
 
 In order to use the `setBackgroundColor_` function, you need to import
 [`UIView_UIViewRendering`](https://simlay.net/uikit-sys/master/uikit_sys/trait.UIView_UIViewRendering.html).
-That's because the background and other rendering methods are all in the
+this is because the background and other rendering methods are all in the
 `UIViewRendering` category of `UIView`. From what I can tell, the objective-c
 engineers at apple use categories as way to organize the sections of code.
 
@@ -462,7 +462,7 @@ You'll notice that this is quite a bit of code with a huge `unsafe` block just
 to get a bit of text on the screen. In fact, there's more `unsafe` function
 calls here than there are safe function calls. The only thing that really could
 be factored out of this block is the creation of `CGPoint`, `CGRect`, and
-`CGSize`.  In my original implementation of this, I actually had the
+`CGSize`.  In my original [implementation of this](https://github.com/simlay/blog-post-examples/blob/2b9a3abdd1ac71342c168772e408159c6db7b0e8/2020-08-17-use-uikit-sys/src/lib.rs#L65-L73), I actually had the
 [`CString`](https://doc.rust-lang.org/std/ffi/struct.CString.html) conversion
 in the `unsafe` block but after reading the docs for
 [`as_ptr`](https://doc.rust-lang.org/std/ffi/struct.CString.html#method.as_uptr).
@@ -477,9 +477,7 @@ That is why there is:
 
 If you were to do `let text_ptr =
 CString::new(label_text.as_str()).expect("CString::new failed").as_ptr()`, you
-might end up with some undefined behavior. When I [originally wrote this
-example](https://github.com/simlay/blog-post-examples/blob/2b9a3abdd1ac71342c168772e408159c6db7b0e8/2020-08-17-use-uikit-sys/src/lib.rs#L65-L73),
-I had the `CString` logic in the unsafe block.
+might end up with some undefined behavior.
 
 So, the question here is "when `initWithBytes_length_encoding_` is called, does
 it take ownership? Otherwise will there be a memory leak?". If we look at
@@ -499,16 +497,15 @@ does copy the bytes.
 So, what happens if we call `add_label` multiple times? Well, in short, it
 currently leaves the memory allocated and the objective-c side of the FFI
 leaves this as a dangling pointer. We should definitely feel bad about it but I
-or someone else will write posts or add better memory management into bindgen
-for this issue.
+or someone else will write a post on how to do this in a more correct and safe way.
 
 # UITextView
 
-Now, let's add a text field. In the past, I've made
+In the past, I've made
 [`iced`](https://github.com/hecrj/iced/pull/57) work on iOS but there was no
-keyboard input and makes it a little hard to use.
+keyboard input and makes it a little hard to use. So, using the native keyboard pop up and work is pretty important to an iOS app.
 
-Let's put a `add_text_view` call in the `Event::NewEvents(StartCause::Init)` branch of the main event loop in winit [similar to above](#uilabel):
+To start, Let's put a `add_text_view` call in the `Event::NewEvents(StartCause::Init)` branch of the main event loop in winit [similar to above](#uilabel):
 ```rust
 Event::NewEvents(StartCause::Init) => {
     add_label("THIS IS SOME TEXT".to_string(), root_view);
@@ -555,26 +552,25 @@ Now when you bundle the app you will have something like:
 ![](../../posts/2020-08-17-using-uikit-sys/uilabel-and-uitextview.png)
 
 
-To describe this section, is actually much easier than the [`UILabel`
+Funny enough, this section is much simler than the [`UILabel`
 section](#uilabel) but mostly because a lot of it is the same idea. We're not
 passing in pointers to `CStrings`, we're passing in some structs for the
 geometry of the frame across the FFI. Similar to the last section, we've just
 thrown memory collection out the window for now.
 
-
 # Thoughts on uikit-sys
 
 The most annoying thing about this development is that you will need to read
 both the Apple's UIKit docs and the generated docs from `uikit-sys`.  There are
-plenty of comments in the objective-c headers but adding them in the generated
-rust isn't so much an option.
+plenty of comments in the objective-c headers but adding them to the generated
+rust isn't an option. Perhaps it's possible to have source maps?
 
 Due to the nature of working on such an obscure subject, I have been [passing
 the buck](https://idioms.thefreedictionary.com/pass+the+buck) on the
 topic until this post. [Apple has recommendations
 page](https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/MemoryMgmt/Articles/MemoryMgmt.html#//apple_ref/doc/uid/10000011-SW1)
 which I think the objective-c features `retain` and `relaese `could actually
-match well with `Clone` and `Drop` in rust.
+match well with `Clone` and `Drop` in rust but that's a discussion for another time.
 
 # Closing thoughts
 
@@ -583,10 +579,12 @@ Things like the text input events are missing, updating different events are
 missing, basic memory management like if you were trying to burn the bits. Because of this, I cannot
 say that I would recommend `uikit-sys` over
 [SwiftUI](https://developer.apple.com/documentation/swiftui) or just plane ol'
-objective-c and UIKit.  From what I can tell, this is the first time someone's
+objective-c and UIKit. From what I can tell, this is the first time someone's
 tried this hard not to build an iOS app using so few of the apple recommended
-libraries.
+libraries. I'm not even sure that this type of work will pass some of the apple
+automated app review stuff.
 
 What we (or maybe just I) should do is use `uikit-sys` in something like
 [`iced`](https://github.com/hecrj/iced) which would make that something similar
-to a mobile-friendly-cross-platform GUI crate. I will leave that guide for another time :)
+to a mobile-friendly-cross-platform GUI crate. I will leave that guide for
+another time :)
