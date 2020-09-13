@@ -7,7 +7,7 @@ description = "So, you really wanna build an iOS app in Rust..."
 # Introduction
 
 In my last post, we learned how one could [use bindgen to generate Rust bindings
-for an Objective-c framework](2020-08-14-rust-bindgen-objc-support) but didn't
+for an Objective-c framework](../rust-bindgen-objc-support) but didn't
 show you how to use them. In this post, I show how to actually use those. This
 will involve:
 * [unsafe
