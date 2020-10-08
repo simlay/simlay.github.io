@@ -1,0 +1,624 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+    <title>Building an (almost entirely) rust iOS app using uikit-sys. - Sebastian Imlay</title>
+    
+    
+    <meta http-equiv="content-type" content="text/html; charset=utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+    <meta name="description" content="The home of simlay.net"/>
+
+    <meta property="og:title" content="
+    simlay -&nbsp;Building an (almost entirely) rust iOS app using uikit-sys." />
+    <meta property="og:type" content="website"/>
+    <meta property="og:url" content="https:&#x2F;&#x2F;simlay.net&#x2F;posts&#x2F;using-uikit-sys&#x2F;"/>
+    <meta property="og:description" content="So, you really wanna build an iOS app in Rust..."/><meta property="og:image" content="https:&#x2F;&#x2F;simlay.net&#x2F;simlay.png"/>
+    <link rel="stylesheet" href="https:&#x2F;&#x2F;simlay.net&#x2F;style.css">
+    <link rel="stylesheet" href="https:&#x2F;&#x2F;simlay.net&#x2F;color&#x2F;blue.css">
+<!-- Google Analytics -->
+        <script async src="https://www.googletagmanager.com/gtag/js?id=UA-44653605-1"></script>
+        <script>
+            window.dataLayer = window.dataLayer || [];
+            function gtag(){dataLayer.push(arguments);}
+            gtag('js', new Date());
+            gtag('config', 'UA-44653605-1');
+        </script>
+
+    </head>
+    <body>
+        <div class="container">
+<header class="header">
+    <div class="header__inner">
+        <div class="header__logo">
+            <a href="https:&#x2F;&#x2F;simlay.net">
+    <div class="logo">
+        simlay
+    </div>
+</a>
+        </div>
+        <div class="menu-trigger">menu</div>
+    </div>
+    
+    <nav class="menu">
+        <ul class="menu__inner menu__inner--desktop">
+            
+            
+        <li>
+            <a href="https:&#x2F;&#x2F;simlay.net&#x2F;me">me</a>
+        </li></ul>
+
+        <ul class="menu__inner menu__inner--mobile">
+            
+        <li>
+            <a href="https:&#x2F;&#x2F;simlay.net&#x2F;me">me</a>
+        </li>
+        </ul>
+    </nav>
+
+    </header>
+<div class="content"><div class="post">
+        <h1 class="post-title">
+            <a href="https:&#x2F;&#x2F;simlay.net&#x2F;posts&#x2F;using-uikit-sys&#x2F;">Building an (almost entirely) rust iOS app using uikit-sys.</a>
+        </h1>
+        
+    <div class="post-meta">
+        <span class="post-date">2020.08.17
+                </span>
+
+        <span class="post-author"></span>
+
+        
+
+    
+    </div>
+
+
+
+        
+
+        <div class="post-content">
+            <h1 id="introduction">Introduction<a class="zola-anchor" href="#introduction" aria-label="Anchor link for: introduction">§</a>
+</h1>
+<p>In my last post, we learned how one could <a href="../rust-bindgen-objc-support">use bindgen to generate Rust bindings
+for an Objective-c framework</a> but didn't
+show you how to use them. In this post, I show how to actually use those. This
+will involve:</p>
+<ul>
+<li><a href="https://doc.rust-lang.org/stable/book/ch19-01-unsafe-rust.html">unsafe
+rust</a></li>
+<li>Learning some <a href="https://developer.apple.com/documentation/uikit">uikit</a> concepts.</li>
+<li>Usage of <a href="https://github.com/rust-windowing/winit">winit</a> on iOS and dealing
+with some of the
+<a href="https://github.com/rust-windowing/winit/issues?q=is%3Aissue+is%3Aopen+label%3A%22platform%3A+iOS%22+">issues</a>.</li>
+<li>How to mild use of <a href="https://crates.io/crates/cargo-bundle"><code>cargo-bundle</code></a>
+and <a href="https://github.com/yonaskolb/XcodeGen"><code>xcodegen</code></a></li>
+</ul>
+<p><strong>disclosure</strong>: Some of the <code>unsafe</code> rust in this post will have memory leaks.
+There's been some <a href="https://steveklabnik.com/writing/a-sad-day-for-rust">controversy about unsafe
+rust</a>. I want to say that
+writing a safe wrapper for unsafe rust is important to me and I've spent a lot
+of time thinking about how build a safe wrapper for <code>uikit-sys</code>. As of writing
+this post, I've not yet figured it out.</p>
+<h1 id="setup">Setup<a class="zola-anchor" href="#setup" aria-label="Anchor link for: setup">§</a>
+</h1>
+<p>Many have written about doing this but let's do it again</p>
+<p><code>cargo new --lib use-uikit-sys</code> but you can name it whatever you
+want. I'm naming it this way because it matches the directory in my
+<a href="https://github.com/simlay/blog-post-examples/tree/master/2020-08-17-use-uikit-sys">simlay/blog-post-examples repo under the use-uikit-sys
+directory</a>.</p>
+<p>Then you need to add <code>winit</code> and <code>uikit-sys</code> as dependencies but I like to also
+add logging facilities as well. Your <code>Cargo.toml</code> should look something like:</p>
+<pre style="background-color:#2b303b;">
+<code><span style="color:#c0c5ce;">[package]
+</span><span style="color:#bf616a;">name </span><span style="color:#c0c5ce;">= &quot;</span><span style="color:#a3be8c;">use-uikit-sys-blog-post</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#bf616a;">version </span><span style="color:#c0c5ce;">= &quot;</span><span style="color:#a3be8c;">0.1.0</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#bf616a;">authors </span><span style="color:#c0c5ce;">= [&quot;</span><span style="color:#a3be8c;">Sebastian Imlay &lt;my-email@gmail.com&gt;</span><span style="color:#c0c5ce;">&quot;]
+</span><span style="color:#bf616a;">edition </span><span style="color:#c0c5ce;">= &quot;</span><span style="color:#a3be8c;">2018</span><span style="color:#c0c5ce;">&quot;
+
+[dependencies]
+</span><span style="color:#bf616a;">uikit-sys </span><span style="color:#c0c5ce;">= { </span><span style="color:#bf616a;">git </span><span style="color:#c0c5ce;">= &quot;</span><span style="color:#a3be8c;">https://github.com/simlay/uikit-sys</span><span style="color:#c0c5ce;">&quot; }
+</span><span style="color:#bf616a;">winit </span><span style="color:#c0c5ce;">= &quot;</span><span style="color:#a3be8c;">0.22.2</span><span style="color:#c0c5ce;">&quot;
+</span></code></pre>
+<p>To get started with <code>winit</code>, do exactly what's on their <a href="https://crates.io/crates/winit/0.22.2">current
+guide</a>. So, your <code>src/lib.rs</code> should
+look like:</p>
+<pre style="background-color:#2b303b;">
+<code><span style="color:#b48ead;">use </span><span style="color:#c0c5ce;">winit::{
+    event::{Event, WindowEvent, StartCause},
+    event_loop::{ControlFlow, EventLoop},
+    window::WindowBuilder,
+};
+</span><span style="color:#b48ead;">pub extern fn </span><span style="color:#8fa1b3;">run_app</span><span style="color:#c0c5ce;">() {
+    </span><span style="color:#b48ead;">let</span><span style="color:#c0c5ce;"> event_loop = EventLoop::new();
+    </span><span style="color:#b48ead;">let</span><span style="color:#c0c5ce;"> window = WindowBuilder::new().</span><span style="color:#96b5b4;">build</span><span style="color:#c0c5ce;">(&amp;event_loop).</span><span style="color:#96b5b4;">unwrap</span><span style="color:#c0c5ce;">();
+
+    event_loop.</span><span style="color:#96b5b4;">run</span><span style="color:#c0c5ce;">(</span><span style="color:#b48ead;">move </span><span style="color:#c0c5ce;">|event, _, control_flow| {
+        *control_flow = ControlFlow::Wait;
+
+        </span><span style="color:#b48ead;">match</span><span style="color:#c0c5ce;"> event {
+            Event::NewEvents(StartCause::Init) =&gt; {
+                println!(&quot;</span><span style="color:#a3be8c;">The app has started!</span><span style="color:#c0c5ce;">&quot;);
+            },
+            Event::WindowEvent {
+                event: WindowEvent::CloseRequested,
+                window_id,
+            } </span><span style="color:#b48ead;">if</span><span style="color:#c0c5ce;"> window_id == window.</span><span style="color:#96b5b4;">id</span><span style="color:#c0c5ce;">() =&gt; *control_flow = ControlFlow::Exit,
+            _ =&gt; (),
+        }
+    });
+}
+</span></code></pre><h2 id="using-cargo-bundle-to-bundle-an-ios-app">Using <code>cargo-bundle</code> to bundle an iOS app.<a class="zola-anchor" href="#using-cargo-bundle-to-bundle-an-ios-app" aria-label="Anchor link for: using-cargo-bundle-to-bundle-an-ios-app">§</a>
+</h2>
+<p>For the case of an example, I'd say <code>cargo-bundle</code> is the quickest way to
+bundle an app but it's got some
+<a href="https://github.com/burtonageo/cargo-bundle">issues</a>. It requires a
+<a href="https://doc.rust-lang.org/cargo/reference/manifest.html#the-description-field"><code>description</code>
+field</a>
+in your <code>Cargo.toml</code> which isn't there by default.</p>
+<p>First off, you need an example to run in your bundle so you need to add <code>mkdir examples</code> and then put the following in <code>examples/uikit.rs</code>:</p>
+<pre style="background-color:#2b303b;">
+<code><span style="color:#b48ead;">use </span><span style="color:#c0c5ce;">my_uikit_sys_app::run_app;
+
+</span><span style="color:#b48ead;">fn </span><span style="color:#8fa1b3;">main</span><span style="color:#c0c5ce;">() {
+    </span><span style="color:#96b5b4;">run_app</span><span style="color:#c0c5ce;">();
+}
+</span></code></pre>
+<p>Then add a <code>package.metadata.bundle.example.uikit</code> section to your
+<code>Cargo.toml</code>. Your <code>Cargo.toml</code> should now look like:</p>
+<pre style="background-color:#2b303b;">
+<code><span style="color:#c0c5ce;">[package]
+</span><span style="color:#bf616a;">name </span><span style="color:#c0c5ce;">= &quot;</span><span style="color:#a3be8c;">use-uikit-sys-blog-post</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#bf616a;">version </span><span style="color:#c0c5ce;">= &quot;</span><span style="color:#a3be8c;">0.1.0</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#bf616a;">authors </span><span style="color:#c0c5ce;">= [&quot;</span><span style="color:#a3be8c;">Sebastian Imlay &lt;my-email@gmail.com&gt;</span><span style="color:#c0c5ce;">&quot;]
+</span><span style="color:#bf616a;">edition </span><span style="color:#c0c5ce;">= &quot;</span><span style="color:#a3be8c;">2018</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#bf616a;">description </span><span style="color:#c0c5ce;">= &quot;&quot;
+
+[package.metadata.bundle.example.uikit]
+</span><span style="color:#bf616a;">name </span><span style="color:#c0c5ce;">= &quot;</span><span style="color:#a3be8c;">uikit</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#bf616a;">identifier </span><span style="color:#c0c5ce;">= &quot;</span><span style="color:#a3be8c;">com.github.simlay.uikit</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#bf616a;">category </span><span style="color:#c0c5ce;">= &quot;</span><span style="color:#a3be8c;">Utility</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#bf616a;">short_description </span><span style="color:#c0c5ce;">= &quot;</span><span style="color:#a3be8c;">An example of a uikit-sys</span><span style="color:#c0c5ce;">&quot;
+</span><span style="color:#bf616a;">long_description </span><span style="color:#c0c5ce;">= &quot;&quot;&quot;</span><span style="color:#a3be8c;">An example of using uikit-sys
+</span><span style="color:#c0c5ce;">&quot;&quot;&quot;
+
+[dependencies]
+</span><span style="color:#bf616a;">uikit-sys </span><span style="color:#c0c5ce;">= { </span><span style="color:#bf616a;">git </span><span style="color:#c0c5ce;">= &quot;</span><span style="color:#a3be8c;">https://github.com/simlay/uikit-sys</span><span style="color:#c0c5ce;">&quot; }
+</span><span style="color:#bf616a;">winit </span><span style="color:#c0c5ce;">= &quot;</span><span style="color:#a3be8c;">0.22.2</span><span style="color:#c0c5ce;">&quot;
+</span></code></pre>
+<p>At this point, you should run install cargo bundle, bundle the example into an
+iOS app, install the app on a simulator and start the app as such:</p>
+<pre style="background-color:#2b303b;">
+<code><span style="color:#bf616a;">$</span><span style="color:#c0c5ce;"> cargo install cargo-bundle</span><span style="color:#bf616a;"> --git</span><span style="color:#c0c5ce;"> https://github.com/burtonageo/cargo-bundle
+</span><span style="color:#bf616a;">$</span><span style="color:#c0c5ce;"> cargo bundle</span><span style="color:#bf616a;"> --example</span><span style="color:#c0c5ce;"> uikit</span><span style="color:#bf616a;"> --target</span><span style="color:#c0c5ce;"> x86_64-apple-ios
+</span><span style="color:#bf616a;">$</span><span style="color:#c0c5ce;"> xcrun simctl install booted target/x86_64-apple-ios/debug/examples/bundle/ios/uikit.app
+</span><span style="color:#bf616a;">$</span><span style="color:#c0c5ce;"> xcrun simctl launch</span><span style="color:#bf616a;"> --console</span><span style="color:#c0c5ce;"> booted com.github.simlay.uikit
+</span></code></pre>
+<p>I tend to put this stuff in a
+<a href="https://github.com/simlay/blog-post-examples/blob/2b9a3abdd1ac71342c168772e408159c6db7b0e8/2020-08-17-use-uikit-sys/Makefile#L3-L13"><code>Makefile</code></a>.</p>
+<p>You will obviously need to have the <a href="https://developer.apple.com/xcode/">Xcode</a>
+installed and an <a href="https://help.apple.com/simulator/mac/current/#/devd856f9e4c">iOS simulator booted
+up</a>. If you're not
+familiar with <code>xcrun simctl</code> commands,
+<a href="https://nshipster.com/simctl/">nshipster</a> and
+<a href="https://medium.com/xcblog/simctl-control-ios-simulators-from-command-line-78b9006a20dc">xcblog</a>
+are good sources.</p>
+<p>Anyway, after you've ran <code>xcrun simctl launch --console booted com.github.simlay.uikit</code>, the shell console should hang and display something
+like:</p>
+<pre style="background-color:#2b303b;">
+<code><span style="color:#c0c5ce;">com.github.simlay.uikit: 53589
+The app has started!
+</span></code></pre>
+<p>Where in this case, <code>53589</code> is the PID of the app and <code>The app has started!</code> is
+from the <code>println!</code> in the code above. Going over to the iOS simulator, you'll
+notice that it's entirely blank. This is because we have literally nothing for
+view. That's in the <a href="https://simlay.net/posts/using-uikit-sys/#adding-some-stuff-to-the-view">Adding some stuff to the
+view</a> below.</p>
+<h2 id="using-xcodegen-to-bundle-an-ios-app">Using <code>xcodegen</code> to bundle an iOS app.<a class="zola-anchor" href="#using-xcodegen-to-bundle-an-ios-app" aria-label="Anchor link for: using-xcodegen-to-bundle-an-ios-app">§</a>
+</h2>
+<p>I've used <code>cargo-bundle</code> for iOS and <a href="https://github.com/burtonageo/cargo-bundle/pulls?q=is%3Apr+author%3Asimlay+is%3Aclosed">fixed various
+issues</a>
+but this is an issue I'm not sure how to fix
+<a href="https://github.com/burtonageo/cargo-bundle/issues/91">burtonageo/cargo-bundle#91</a>.
+For iOS features which you need to need to know how your
+layout works, you might want to use <code>xcodegen</code>. It's a lot more complicated
+than <code>cargo-bundle</code> but worth it.</p>
+<p>Anyway, first off <a href="https://github.com/yonaskolb/XcodeGen#installing">install
+<code>xcodegen</code></a> and
+<a href="https://github.com/TimNN/cargo-lipo"><code>cargo-lipo</code></a>, then you'll have to turn
+your crate into a
+<a href="https://doc.rust-lang.org/reference/linkage.html"><code>staticlib</code></a> by adding this
+to your <code>Cargo.toml</code>:</p>
+<pre style="background-color:#2b303b;">
+<code><span style="color:#c0c5ce;">[lib]
+</span><span style="color:#bf616a;">crate-type </span><span style="color:#c0c5ce;">= [&quot;</span><span style="color:#a3be8c;">staticlib</span><span style="color:#c0c5ce;">&quot;, &quot;</span><span style="color:#a3be8c;">lib</span><span style="color:#c0c5ce;">&quot;]
+</span></code></pre>
+<p>The <code>lib</code> will keep the existing functionality of <a href="https://simlay.net/posts/using-uikit-sys/#using-cargo-bundle-to-bundle-an-ios-app">cargo-bundle</a>.</p>
+<p>add the following file to <code>project.yml</code>:</p>
+<pre style="background-color:#2b303b;">
+<code><span style="color:#bf616a;">name</span><span style="color:#c0c5ce;">: </span><span style="color:#bf616a;">uikit_example
+options</span><span style="color:#c0c5ce;">:
+  </span><span style="color:#bf616a;">bundleIdPrefix</span><span style="color:#c0c5ce;">: </span><span style="color:#bf616a;">com.rust
+configs</span><span style="color:#c0c5ce;">:
+  </span><span style="color:#bf616a;">Debug</span><span style="color:#c0c5ce;">: </span><span style="color:#bf616a;">debug
+  Release</span><span style="color:#c0c5ce;">: </span><span style="color:#bf616a;">release
+targets</span><span style="color:#c0c5ce;">:
+  </span><span style="color:#bf616a;">cargo_ios</span><span style="color:#c0c5ce;">:
+    </span><span style="color:#bf616a;">type</span><span style="color:#c0c5ce;">: &quot;&quot;
+    </span><span style="color:#bf616a;">platform</span><span style="color:#c0c5ce;">: </span><span style="color:#bf616a;">iOS
+    legacy</span><span style="color:#c0c5ce;">:
+      </span><span style="color:#bf616a;">toolPath</span><span style="color:#c0c5ce;">: </span><span style="color:#bf616a;">/bin/sh
+      arguments</span><span style="color:#c0c5ce;">: &quot;</span><span style="color:#a3be8c;">build_rust_deps.sh</span><span style="color:#c0c5ce;">&quot;
+      </span><span style="color:#bf616a;">workingDirectory</span><span style="color:#c0c5ce;">: &quot;</span><span style="color:#a3be8c;">.</span><span style="color:#c0c5ce;">&quot;
+  </span><span style="color:#bf616a;">use_uikit_example</span><span style="color:#c0c5ce;">:
+    </span><span style="color:#bf616a;">sources</span><span style="color:#c0c5ce;">: </span><span style="color:#bf616a;">ios-src/
+    type</span><span style="color:#c0c5ce;">: </span><span style="color:#bf616a;">application
+    platform</span><span style="color:#c0c5ce;">: </span><span style="color:#bf616a;">iOS
+    deploymentTarget</span><span style="color:#c0c5ce;">: &quot;</span><span style="color:#a3be8c;">13.0</span><span style="color:#c0c5ce;">&quot;
+    </span><span style="color:#bf616a;">scheme</span><span style="color:#c0c5ce;">:
+      </span><span style="color:#bf616a;">environmentVariables</span><span style="color:#c0c5ce;">:
+        - </span><span style="color:#bf616a;">variable</span><span style="color:#c0c5ce;">: </span><span style="color:#bf616a;">RUST_BACKTRACE
+          value</span><span style="color:#c0c5ce;">: </span><span style="color:#d08770;">1
+          </span><span style="color:#bf616a;">isEnabled</span><span style="color:#c0c5ce;">: </span><span style="color:#d08770;">true
+        </span><span style="color:#c0c5ce;">- </span><span style="color:#bf616a;">variable</span><span style="color:#c0c5ce;">: </span><span style="color:#bf616a;">RUST_LOG
+          value</span><span style="color:#c0c5ce;">: </span><span style="color:#bf616a;">info
+          isEnabled</span><span style="color:#c0c5ce;">: </span><span style="color:#d08770;">true
+        </span><span style="color:#c0c5ce;">- </span><span style="color:#bf616a;">variable</span><span style="color:#c0c5ce;">: </span><span style="color:#bf616a;">METAL_DEVICE_WRAPPER_TYPE
+          value</span><span style="color:#c0c5ce;">: </span><span style="color:#d08770;">1
+          </span><span style="color:#bf616a;">isEnabled</span><span style="color:#c0c5ce;">: </span><span style="color:#d08770;">true
+    </span><span style="color:#bf616a;">settings</span><span style="color:#c0c5ce;">:
+      </span><span style="color:#bf616a;">base</span><span style="color:#c0c5ce;">:
+        </span><span style="color:#bf616a;">OTHER_LDFLAGS</span><span style="color:#c0c5ce;">: [&quot;</span><span style="color:#a3be8c;">$(inherited)</span><span style="color:#c0c5ce;">&quot;, &quot;</span><span style="color:#a3be8c;">-luse_uikit_sys_blog_post</span><span style="color:#c0c5ce;">&quot;]
+        </span><span style="color:#bf616a;">ENABLE_BITCODE</span><span style="color:#c0c5ce;">: </span><span style="color:#d08770;">NO
+        </span><span style="color:#bf616a;">CLANG_CXX_LANGUAGE_STANDARD</span><span style="color:#c0c5ce;">: </span><span style="color:#bf616a;">c++14
+        CLANG_CXX_LIBRARY</span><span style="color:#c0c5ce;">: </span><span style="color:#bf616a;">libc++
+      configs</span><span style="color:#c0c5ce;">:
+        </span><span style="color:#bf616a;">debug</span><span style="color:#c0c5ce;">:
+          </span><span style="color:#bf616a;">HEADER_SEARCH_PATHS</span><span style="color:#c0c5ce;">: [&quot;</span><span style="color:#a3be8c;">$(inherited)</span><span style="color:#c0c5ce;">&quot;, &quot;</span><span style="color:#a3be8c;">ios-src/</span><span style="color:#c0c5ce;">&quot;]
+          </span><span style="color:#bf616a;">LIBRARY_SEARCH_PATHS</span><span style="color:#c0c5ce;">: [&quot;</span><span style="color:#a3be8c;">$(inherited)</span><span style="color:#c0c5ce;">&quot;, &quot;</span><span style="color:#a3be8c;">./target/universal/debug</span><span style="color:#c0c5ce;">&quot;]
+        </span><span style="color:#bf616a;">release</span><span style="color:#c0c5ce;">:
+          </span><span style="color:#bf616a;">HEADER_SEARCH_PATHS</span><span style="color:#c0c5ce;">: [&quot;</span><span style="color:#a3be8c;">$(inherited)</span><span style="color:#c0c5ce;">&quot;, &quot;</span><span style="color:#a3be8c;">ios-src/</span><span style="color:#c0c5ce;">&quot;]
+          </span><span style="color:#bf616a;">LIBRARY_SEARCH_PATHS</span><span style="color:#c0c5ce;">: [&quot;</span><span style="color:#a3be8c;">$(inherited)</span><span style="color:#c0c5ce;">&quot;, &quot;</span><span style="color:#a3be8c;">./target/universal/release</span><span style="color:#c0c5ce;">&quot;]
+    </span><span style="color:#bf616a;">dependencies</span><span style="color:#c0c5ce;">:
+      - </span><span style="color:#bf616a;">sdk</span><span style="color:#c0c5ce;">: </span><span style="color:#bf616a;">Security.framework
+      </span><span style="color:#c0c5ce;">- </span><span style="color:#bf616a;">sdk</span><span style="color:#c0c5ce;">: </span><span style="color:#bf616a;">UIKit.framework
+      </span><span style="color:#c0c5ce;">- </span><span style="color:#bf616a;">target</span><span style="color:#c0c5ce;">: </span><span style="color:#bf616a;">cargo_ios
+        embed</span><span style="color:#c0c5ce;">: </span><span style="color:#d08770;">false
+    </span><span style="color:#bf616a;">info</span><span style="color:#c0c5ce;">:
+      </span><span style="color:#bf616a;">path</span><span style="color:#c0c5ce;">: </span><span style="color:#bf616a;">ios-src/Info.plist
+      properties</span><span style="color:#c0c5ce;">:
+        </span><span style="color:#bf616a;">UILaunchStoryboardName</span><span style="color:#c0c5ce;">: </span><span style="color:#a3be8c;">LaunchScreen
+</span></code></pre>
+<p>This describes the project layout to <code>xcodegen</code> which then generates an Xcode project. With this setup, you'll need:</p>
+<pre style="background-color:#2b303b;">
+<code><span style="color:#c0c5ce;">+-- ios-src/
+|   +-- main.m
+|   +-- bindings.h
+|   +-- Info.plist
++-- build_rust_deps.sh
+</span></code></pre>
+<p><a href="https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Introduction/Introduction.html"><code>Info.plist</code> is for the iOS app
+metadata</a>,
+<a href="https://github.com/simlay/blog-post-examples/blob/2b9a3abdd1ac71342c168772e408159c6db7b0e8/2020-08-17-use-uikit-sys/build_rust_deps.sh#L8"><code>build_rust_deps.sh</code></a>
+really just wraps <code>cargo lipo</code>,
+<code>bindings.h</code> contains only <code>void run_app(void);</code> and <code>main.m</code> has:</p>
+<pre style="background-color:#2b303b;">
+<code><span style="color:#b48ead;">#import </span><span style="color:#c0c5ce;">&quot;</span><span style="color:#a3be8c;">bindings.h</span><span style="color:#c0c5ce;">&quot;
+
+</span><span style="color:#b48ead;">int </span><span style="color:#8fa1b3;">main</span><span style="color:#c0c5ce;">() {
+    </span><span style="color:#bf616a;">run_app</span><span style="color:#c0c5ce;">();
+    </span><span style="color:#b48ead;">return </span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">;
+}
+</span></code></pre>
+<p>This is the only bit of non-rust programming in this project.</p>
+<p>For now, <code>bindings.h</code> is hardcoded to match the function from <code>src/lib.rs</code> but
+if you want to do this correctly, I recommend adding <code>build.rs</code> to your crate,
+and use
+<a href="https://github.com/eqrion/cbindgen/blob/master/docs.md#buildrs"><code>cbindgen</code></a>
+to autogenerate the contents <code>bindings.h</code> based on your <code>#[no_mangle] extern fn</code>s in your crate.</p>
+<p>To make this project run:</p>
+<pre style="background-color:#2b303b;">
+<code><span style="color:#bf616a;">$</span><span style="color:#c0c5ce;"> xcodegen
+</span><span style="color:#bf616a;">$</span><span style="color:#c0c5ce;"> xcodebuild</span><span style="color:#bf616a;"> -scheme</span><span style="color:#c0c5ce;"> use_uikit_example</span><span style="color:#bf616a;"> -configuration</span><span style="color:#c0c5ce;"> Debug</span><span style="color:#bf616a;"> -destination </span><span style="color:#c0c5ce;">&#39;</span><span style="color:#a3be8c;">platform=iOS Simulator,name=iPhone SE (2nd generation),OS=13.6</span><span style="color:#c0c5ce;">&#39;</span><span style="color:#bf616a;"> -derivedDataPath</span><span style="color:#c0c5ce;"> build
+</span><span style="color:#bf616a;">$</span><span style="color:#c0c5ce;"> xcrun simctl install booted build/Build/Products/Debug-iphonesimulator/use_uikit_example.app
+</span><span style="color:#bf616a;">$</span><span style="color:#c0c5ce;"> xcrun simctl launch</span><span style="color:#bf616a;"> --console</span><span style="color:#c0c5ce;"> booted com.rust.use-uikit-example
+</span></code></pre>
+<p>At this point, you should get the same result as the <a href="https://simlay.net/posts/using-uikit-sys/#using-cargo-bundle-to-bundle-an-ios-app">cargo-bundle</a> section:</p>
+<pre style="background-color:#2b303b;">
+<code><span style="color:#c0c5ce;">com.rust.use-uikit-example: 63021
+The app has started!
+</span></code></pre>
+<p>You can also just run <code>xcodegen</code> and open <code>uikit_example.xcodeproj</code> and push
+the magic play button. Similar to the
+<a href="https://simlay.net/posts/using-uikit-sys/#using-cargo-bundle-to-bundle-an-ios-app">cargo-bundle</a> section, like adding a
+<a href="https://github.com/simlay/blog-post-examples/blob/2b9a3abdd1ac71342c168772e408159c6db7b0e8/2020-08-17-use-uikit-sys/Makefile#L16-L26"><code>Makefile</code></a>
+for these things.</p>
+<p>One annoying thing about doing it via the <code>xcodebuild</code> command shown above is
+that the
+<code>-destination 'platform=iOS Simulator,name=iPhone SE (2nd generation),OS=13.6'</code>
+argument changes with new updates to iPhones and
+iOS versions. Someday I or someone will figure out a nice way of getting that
+argument from <code>xcrun simctl list</code> but for now we hard code it.</p>
+<h1 id="adding-some-stuff-to-the-view">Adding some stuff to the view<a class="zola-anchor" href="#adding-some-stuff-to-the-view" aria-label="Anchor link for: adding-some-stuff-to-the-view">§</a>
+</h1>
+<p>So far, all we've done is make an app with a blank screen which is pretty
+uninteresting so, let's add some views.</p>
+<p>First off, let's change the background color.</p>
+<p>To do this we'll need to import some new things:</p>
+<pre style="background-color:#2b303b;">
+<code><span style="color:#b48ead;">use </span><span style="color:#c0c5ce;">winit::platform::ios::WindowExtIOS;
+</span><span style="color:#b48ead;">use </span><span style="color:#c0c5ce;">uikit_sys::{
+    id,
+    UIView,
+    UIColor,
+    IUIColor,
+    UIView_UIViewRendering,
+};
+</span></code></pre>
+<p>And then once you've created the window you need to get the root view via:</p>
+<pre style="background-color:#2b303b;">
+<code><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">let</span><span style="color:#c0c5ce;"> root_view: UIView = UIView(window.</span><span style="color:#96b5b4;">ui_view</span><span style="color:#c0c5ce;">() as id);
+    </span><span style="color:#b48ead;">unsafe </span><span style="color:#c0c5ce;">{
+        root_view.setBackgroundColor_(UIColor::yellowColor());
+    }
+
+</span></code></pre>
+<p>If you rerun the bundling steps from either the
+<a href="https://simlay.net/posts/using-uikit-sys/#using-cargo-bundle-to-bundle-an-ios-app">cargo-bundle</a> or the
+<a href="https://simlay.net/posts/using-uikit-sys/#using-xcodegen-to-bundle-an-ios-app">xcodegen</a> and you should have a yellow app
+as seen here:</p>
+<p><img src="../../posts/2020-08-17-using-uikit-sys/yellow-background-simulator.png" alt="" /></p>
+<h2 id="so-what-s-this-do">So, what's this do?<a class="zola-anchor" href="#so-what-s-this-do" aria-label="Anchor link for: so-what-s-this-do">§</a>
+</h2>
+<p>So, first off when we do <code>UIView(window.ui_view() as id);</code> this is converting
+the <a href="https://doc.rust-lang.org/std/ffi/enum.c_void.html"><code>c_void</code></a> that <a href="https://github.com/rust-windowing/winit/blob/ec1ae68cfc9a14391afa2380a7f3a4f8f32dc813/src/platform/ios.rs#L111-L113">winit
+use for the root
+view</a>
+and then casting it to an <code>id</code> which is a pointer to the objective-c object.
+It's actually the same type <a href="https://github.com/rust-windowing/winit/blob/ec1ae68cfc9a14391afa2380a7f3a4f8f32dc813/src/platform_impl/ios/window.rs#L443-L445">internally in the <code>Window</code>
+struct</a>.
+Once we do that, we need to use the building blocks generated from the
+<code>uikit-sys</code> crate.</p>
+<p>One aspect of doing rust targeted at iOS is that <a href="https://docs.rs/">docs.rs</a>
+doesn't have the any docs for any iOS targeted stuff. It's due to iOS targets
+needing <code>xcrun</code> installed on the system and docs.rs runs on ubuntu. To really
+get docs for your project, you should do <code>cargo doc --target x86_64-apple-ios --document-private-items --open</code> to get the <code>winit</code> and <code>uikit-sys</code> docs.</p>
+<p>Now, the <code>unsafe</code> block to run
+<code>root_view.setBackgroundColor_(UIColor::blueColor());</code> is the thing that
+actually set's the color. This is required to be <code>unsafe</code> because everything
+inside of that logic is autogenerated from the UIKit framework headers and crosses the FFI boundary. If
+you're curious where they are I recommend looking in <code>$(xcrun --sdk iphonesimulator --show-sdk-path)/System/Library/Frameworks/UIKit.framework/Headers/</code></p>
+<p>Anyway, <code>bindgen</code> produces some typed bindings for objective-c. I've spent a
+bit of <a href="https://github.com/rust-lang/rust-bindgen/pulls?q=is%3Apr+author%3Asimlay+">time in the last year trying to make them
+better</a>.
+So, <code>UIColor::blueColor()</code> returns a <code>UIColor</code> which is just:</p>
+<pre style="background-color:#2b303b;">
+<code><span style="color:#c0c5ce;">#[</span><span style="color:#bf616a;">repr</span><span style="color:#c0c5ce;">(transparent)]
+#[</span><span style="color:#bf616a;">derive</span><span style="color:#c0c5ce;">(Clone, Copy)]
+</span><span style="color:#b48ead;">pub struct </span><span style="color:#c0c5ce;">UIColor(pub id);
+</span></code></pre>
+<p>The <code>repr(transparent)</code> is the magic behind having <code>UIColor::blueColor()</code>
+return a <code>UIColor</code> instance. I sumarized this in <a href="../rust-bindgen-objc-support/#so-what-have-we-built">my last
+post</a>.</p>
+<p>Now, the <code>root_view.setBackgroundColor_(UIColor::blueColor())</code> matches the
+<a href="https://developer.apple.com/documentation/uikit/uiview/1622591-backgroundcolor?language=objc">background color instance property
+assignment</a>
+which is the objective-c equivalent to:</p>
+<pre style="background-color:#2b303b;">
+<code><span style="color:#c0c5ce;">root_view.backgroundColor = [UIColor blueColor];
+</span></code></pre>
+<p>Due to the FFI aspect of this, the above statement doesn't translate to rust so
+to assign things, bindgen gives you <code>setFoo_</code> for a property <code>Foo</code> that is not <code>readonly</code>.</p>
+<p>In order to use the <code>setBackgroundColor_</code> function, you need to import
+<a href="https://simlay.net/uikit-sys/master/uikit_sys/trait.UIView_UIViewRendering.html"><code>UIView_UIViewRendering</code></a>.
+this is because the background and other rendering methods are all in the
+<code>UIViewRendering</code> category of <code>UIView</code>. From what I can tell, the objective-c
+engineers at apple use categories as way to organize the sections of code.</p>
+<h1 id="let-s-add-some-text-and-a-text-field">Let's add some text and a text field.<a class="zola-anchor" href="#let-s-add-some-text-and-a-text-field" aria-label="Anchor link for: let-s-add-some-text-and-a-text-field">§</a>
+</h1>
+<p>To do this, the building blocks are
+<a href="https://developer.apple.com/documentation/uikit/uilabel"><code>UILabel</code></a> and
+<a href="https://developer.apple.com/documentation/uikit/uitextview?language=objc"><code>UITextField</code></a>
+from the apple docs. You can checkout the <code>uikit-sys</code> equivalents at
+<a href="https://simlay.net/uikit-sys/master/uikit_sys/struct.UILabel.html"><code>UILabel</code></a>
+and
+<a href="https://simlay.net/uikit-sys/master/uikit_sys/struct.UITextView.html"><code>UITextView</code></a>.</p>
+<h2 id="uilabel">UILabel<a class="zola-anchor" href="#uilabel" aria-label="Anchor link for: uilabel">§</a>
+</h2>
+<p>Let's write a function that's called upon the
+<code>Event::NewEvents(StartCause::Init)</code> branch of the main event loop in winit:</p>
+<pre style="background-color:#2b303b;">
+<code><span style="color:#c0c5ce;">Event::NewEvents(StartCause::Init) =&gt; {
+    </span><span style="color:#96b5b4;">add_label</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">THIS IS SOME TEXT</span><span style="color:#c0c5ce;">&quot;.</span><span style="color:#96b5b4;">to_string</span><span style="color:#c0c5ce;">(), root_view);
+    println!(&quot;</span><span style="color:#a3be8c;">The app has started!</span><span style="color:#c0c5ce;">&quot;);
+},
+</span></code></pre>
+<p>with the <code>add_label</code> function thusly:</p>
+<pre style="background-color:#2b303b;">
+<code><span style="color:#b48ead;">fn </span><span style="color:#8fa1b3;">add_label</span><span style="color:#c0c5ce;">(</span><span style="color:#bf616a;">label_text</span><span style="color:#c0c5ce;">: String, </span><span style="color:#bf616a;">root_view</span><span style="color:#c0c5ce;">: UIView) {
+    </span><span style="color:#b48ead;">use </span><span style="color:#c0c5ce;">uikit_sys::{
+        UILabel,
+        IUILabel,
+        NSString,
+        INSObject,
+        UIView_UIViewHierarchy,
+        UIView_UIViewGeometry,
+        NSString_NSStringExtensionMethods,
+        NSUTF8StringEncoding,
+        CGRect,
+        CGPoint,
+        CGSize,
+    };
+
+    </span><span style="color:#b48ead;">use </span><span style="color:#c0c5ce;">std::{
+        ffi::CString,
+        convert::TryInto,
+    };
+    </span><span style="color:#b48ead;">let</span><span style="color:#c0c5ce;"> text = CString::new(label_text.</span><span style="color:#96b5b4;">as_str</span><span style="color:#c0c5ce;">()).</span><span style="color:#96b5b4;">expect</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">CString::new failed</span><span style="color:#c0c5ce;">&quot;);
+    </span><span style="color:#b48ead;">let</span><span style="color:#c0c5ce;"> text_ptr = text.</span><span style="color:#96b5b4;">as_ptr</span><span style="color:#c0c5ce;">();
+    </span><span style="color:#b48ead;">let</span><span style="color:#c0c5ce;"> text_length = label_text.</span><span style="color:#96b5b4;">len</span><span style="color:#c0c5ce;">().</span><span style="color:#96b5b4;">try_into</span><span style="color:#c0c5ce;">().</span><span style="color:#96b5b4;">unwrap</span><span style="color:#c0c5ce;">();
+    </span><span style="color:#b48ead;">unsafe </span><span style="color:#c0c5ce;">{
+        </span><span style="color:#b48ead;">let</span><span style="color:#c0c5ce;"> label = UILabel::alloc();
+        label.</span><span style="color:#96b5b4;">init</span><span style="color:#c0c5ce;">();
+
+        </span><span style="color:#b48ead;">let</span><span style="color:#c0c5ce;"> text = NSString(
+            NSString::alloc().initWithBytes_length_encoding_(
+                text_ptr as </span><span style="color:#b48ead;">*mut </span><span style="color:#c0c5ce;">std::ffi::</span><span style="color:#b48ead;">c_void</span><span style="color:#c0c5ce;">,
+                text_length,
+                NSUTF8StringEncoding,
+            ),
+        );
+
+        label.setFrame_(CGRect {
+            origin: CGPoint {
+                x: </span><span style="color:#d08770;">20.0</span><span style="color:#c0c5ce;">,
+                y: </span><span style="color:#d08770;">20.0</span><span style="color:#c0c5ce;">,
+            },
+            size: CGSize {
+                width: </span><span style="color:#d08770;">200.0</span><span style="color:#c0c5ce;">,
+                height: </span><span style="color:#d08770;">40.0</span><span style="color:#c0c5ce;">,
+            },
+        });
+        label.setText_(text);
+
+        root_view.addSubview_(UIView(label.</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">));
+    }
+}
+</span></code></pre>
+<p>Rebuilding and running the app you get:</p>
+<p><img src="../../posts/2020-08-17-using-uikit-sys/uilabel-start.png" alt="" /></p>
+<p>You'll notice that this is quite a bit of code with a huge <code>unsafe</code> block just
+to get a bit of text on the screen. In fact, there's more <code>unsafe</code> function
+calls here than there are safe function calls. The only thing that really could
+be factored out of this block is the creation of <code>CGPoint</code>, <code>CGRect</code>, and
+<code>CGSize</code>.  In my original <a href="https://github.com/simlay/blog-post-examples/blob/2b9a3abdd1ac71342c168772e408159c6db7b0e8/2020-08-17-use-uikit-sys/src/lib.rs#L65-L73">implementation of this</a>, I actually had the
+<a href="https://doc.rust-lang.org/std/ffi/struct.CString.html"><code>CString</code></a> conversion
+in the <code>unsafe</code> block but after reading the docs for
+<a href="https://doc.rust-lang.org/std/ffi/struct.CString.html#method.as_uptr"><code>as_ptr</code></a>.
+I concluded that this exhibited some undefined behavior.</p>
+<p>That is why there is:</p>
+<pre style="background-color:#2b303b;">
+<code><span style="color:#c0c5ce;">    </span><span style="color:#b48ead;">let</span><span style="color:#c0c5ce;"> text = CString::new(label_text.</span><span style="color:#96b5b4;">as_str</span><span style="color:#c0c5ce;">()).</span><span style="color:#96b5b4;">expect</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">CString::new failed</span><span style="color:#c0c5ce;">&quot;);
+    </span><span style="color:#b48ead;">let</span><span style="color:#c0c5ce;"> text_ptr = text.</span><span style="color:#96b5b4;">as_ptr</span><span style="color:#c0c5ce;">();
+    </span><span style="color:#b48ead;">let</span><span style="color:#c0c5ce;"> text_length = label_text.</span><span style="color:#96b5b4;">len</span><span style="color:#c0c5ce;">().</span><span style="color:#96b5b4;">try_into</span><span style="color:#c0c5ce;">().</span><span style="color:#96b5b4;">unwrap</span><span style="color:#c0c5ce;">();
+</span></code></pre>
+<p>If you were to do <code>let text_ptr = CString::new(label_text.as_str()).expect(&quot;CString::new failed&quot;).as_ptr()</code>, you
+might end up with some undefined behavior.</p>
+<p>So, the question here is &quot;when <code>initWithBytes_length_encoding_</code> is called, does
+it take ownership? Otherwise will there be a memory leak?&quot;. If we look at
+<a href="https://github.com/SSheldon/rust-objc-foundation/blob/15f9ebec1190889e48a4bc2d36601e61d303071f/src/string.rs#L53-L63"><code>objc-foundation</code></a>
+and
+<a href="https://github.com/servo/core-foundation-rs/blob/69c09ab8fda5f84c795354fa664132211f755e7e/cocoa-foundation/src/foundation.rs#L624-L629"><code>core-foundation</code></a>,
+these implementations imply that the memory is copied when passed to the
+Objective-c side. I've failed at finding a place where it explicitly says it
+copies the bytes on the objective-c side but if
+<a href="https://developer.apple.com/documentation/foundation/nsstring/1413830-initwithbytesnocopy?language=objc"><code>initWithBytesNoCopy:length:encoding:freeWhenDone:</code></a>
+doesn't copy the bytes and optionally frees it, that implies that
+<a href="https://developer.apple.com/documentation/foundation/nsstring/1407339-initwithbytes?language=objc"><code>initWithBytes:length:encoding:</code></a>
+does copy the bytes.</p>
+<h3 id="will-this-leak-memory">Will this leak memory?<a class="zola-anchor" href="#will-this-leak-memory" aria-label="Anchor link for: will-this-leak-memory">§</a>
+</h3>
+<p>So, what happens if we call <code>add_label</code> multiple times? Well, in short, it
+currently leaves the memory allocated and the objective-c side of the FFI
+leaves this as a dangling pointer. We should definitely feel bad about it but I
+or someone else will write a post on how to do this in a more correct and safe way.</p>
+<h1 id="uitextview">UITextView<a class="zola-anchor" href="#uitextview" aria-label="Anchor link for: uitextview">§</a>
+</h1>
+<p>In the past, I've made
+<a href="https://github.com/hecrj/iced/pull/57"><code>iced</code></a> work on iOS but there was no
+keyboard input and makes it a little hard to use. So, using the native keyboard pop up and work is pretty important to an iOS app.</p>
+<p>To start, Let's put a <code>add_text_view</code> call in the <code>Event::NewEvents(StartCause::Init)</code> branch of the main event loop in winit <a href="https://simlay.net/posts/using-uikit-sys/#uilabel">similar to above</a>:</p>
+<pre style="background-color:#2b303b;">
+<code><span style="color:#c0c5ce;">Event::NewEvents(StartCause::Init) =&gt; {
+    </span><span style="color:#96b5b4;">add_label</span><span style="color:#c0c5ce;">(&quot;</span><span style="color:#a3be8c;">THIS IS SOME TEXT</span><span style="color:#c0c5ce;">&quot;.</span><span style="color:#96b5b4;">to_string</span><span style="color:#c0c5ce;">(), root_view);
+    </span><span style="color:#96b5b4;">add_text_view</span><span style="color:#c0c5ce;">(root_view);
+    println!(&quot;</span><span style="color:#a3be8c;">The app has started!</span><span style="color:#c0c5ce;">&quot;);
+},
+</span></code></pre>
+<p>And add a <code>add_text_view</code> function:</p>
+<pre style="background-color:#2b303b;">
+<code><span style="color:#b48ead;">fn </span><span style="color:#8fa1b3;">add_text_view</span><span style="color:#c0c5ce;">(</span><span style="color:#bf616a;">root_view</span><span style="color:#c0c5ce;">: UIView) {
+    </span><span style="color:#b48ead;">use </span><span style="color:#c0c5ce;">uikit_sys::{
+        CGRect,
+        CGPoint,
+        CGSize,
+        UITextView,
+        IUITextView,
+        UIView_UIViewHierarchy,
+        UIView_UIViewGeometry,
+        INSObject,
+    };
+    </span><span style="color:#b48ead;">let</span><span style="color:#c0c5ce;"> _textview = </span><span style="color:#b48ead;">unsafe </span><span style="color:#c0c5ce;">{
+        </span><span style="color:#b48ead;">let</span><span style="color:#c0c5ce;"> ui_textview = {
+            </span><span style="color:#b48ead;">let</span><span style="color:#c0c5ce;"> view = UITextView(UITextView::alloc().</span><span style="color:#96b5b4;">init</span><span style="color:#c0c5ce;">());
+            view.setFrame_(CGRect {
+                origin: CGPoint {
+                    x: </span><span style="color:#d08770;">20.0</span><span style="color:#c0c5ce;">,
+                    y: </span><span style="color:#d08770;">50.0</span><span style="color:#c0c5ce;">,
+                },
+                size: CGSize {
+                    width: </span><span style="color:#d08770;">200.0</span><span style="color:#c0c5ce;">,
+                    height: </span><span style="color:#d08770;">40.0</span><span style="color:#c0c5ce;">,
+                },
+            });
+            root_view.addSubview_(UIView(view.</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">));
+            view
+        };
+        ui_textview
+    };
+}
+</span></code></pre>
+<p>Now when you bundle the app you will have something like:</p>
+<p><img src="../../posts/2020-08-17-using-uikit-sys/uilabel-and-uitextview.png" alt="" /></p>
+<p>Funny enough, this section is much simler than the <a href="https://simlay.net/posts/using-uikit-sys/#uilabel"><code>UILabel</code>
+section</a> but mostly because a lot of it is the same idea. We're not
+passing in pointers to <code>CStrings</code>, we're passing in some structs for the
+geometry of the frame across the FFI. Similar to the last section, we've just
+thrown memory collection out the window for now.</p>
+<h1 id="thoughts-on-uikit-sys">Thoughts on uikit-sys<a class="zola-anchor" href="#thoughts-on-uikit-sys" aria-label="Anchor link for: thoughts-on-uikit-sys">§</a>
+</h1>
+<p>The most annoying thing about this development is that you will need to read
+both the Apple's UIKit docs and the generated docs from <code>uikit-sys</code>.  There are
+plenty of comments in the objective-c headers but adding them to the generated
+rust isn't an option. Perhaps it's possible to have source maps?</p>
+<p>Due to the nature of working on such an obscure subject, I have been <a href="https://idioms.thefreedictionary.com/pass+the+buck">passing
+the buck</a> on the
+topic until this post. <a href="https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/MemoryMgmt/Articles/MemoryMgmt.html#//apple_ref/doc/uid/10000011-SW1">Apple has recommendations
+page</a>
+which I think the objective-c features <code>retain</code> and <code>relaese </code>could actually
+match well with <code>Clone</code> and <code>Drop</code> in rust but that's a discussion for another time.</p>
+<h1 id="closing-thoughts">Closing thoughts<a class="zola-anchor" href="#closing-thoughts" aria-label="Anchor link for: closing-thoughts">§</a>
+</h1>
+<p>So, this is a way you could in theory build an iOS app. It's missing a lot.
+Things like the text input events are missing, updating different events are
+missing, basic memory management like if you were trying to burn the bits. Because of this, I cannot
+say that I would recommend <code>uikit-sys</code> over
+<a href="https://developer.apple.com/documentation/swiftui">SwiftUI</a> or just plane ol'
+objective-c and UIKit. From what I can tell, this is the first time someone's
+tried this hard not to build an iOS app using so few of the apple recommended
+libraries. I'm not even sure that this type of work will pass some of the apple
+automated app review stuff.</p>
+<p>What we (or maybe just I) should do is use <code>uikit-sys</code> in something like
+<a href="https://github.com/hecrj/iced"><code>iced</code></a> which would make that something similar
+to a mobile-friendly-cross-platform GUI crate. I will leave that guide for
+another time :)</p>
+
+        </div>
+        
+    
+</div></div>
+            
+    <div class="pagination">
+        <div class="pagination__buttons">
+            </div>
+    </div>
+<footer class="footer">
+                    <div class="footer__inner"><div class="copyright">
+            <span>© 2020 :: Powered by <a href="https://www.getzola.org/">Zola</a></span>
+        </div>
+    <script type="text/javascript" src="https:&#x2F;&#x2F;simlay.net&#x2F;assets&#x2F;js&#x2F;main.js"></script>
+</div>
+                    
+
+                </footer></div>
+        <script data-goatcounter="https://simlay.goatcounter.com/count" async src="//gc.zgo.at/count.js"></script></body>
+</html>

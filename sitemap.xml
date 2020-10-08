@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+    <url>
+        <loc>https://simlay.net/</loc>
+    </url>
+    <url>
+        <loc>https://simlay.net/me/</loc>
+    </url>
+    <url>
+        <loc>https://simlay.net/page/1/</loc>
+    </url>
+    <url>
+        <loc>https://simlay.net/posts/rust-bindgen-objc-support/</loc>
+        <lastmod>2020-08-14</lastmod>
+    </url>
+    <url>
+        <loc>https://simlay.net/posts/using-uikit-sys/</loc>
+        <lastmod>2020-08-17</lastmod>
+    </url>
+</urlset>
