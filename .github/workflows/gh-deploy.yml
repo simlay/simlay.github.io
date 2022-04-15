@@ -1,4 +1,10 @@
-on: push
+on:
+  workflow_dispatch:
+  push:
+    branches: [ master ]
+  schedule:
+    - cron:  '0 15 * * 0'
+
 name: Build and deploy on push
 jobs:
   build:
