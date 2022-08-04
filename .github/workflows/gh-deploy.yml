@@ -11,9 +11,9 @@ jobs:
     name: zola-deploy-action
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@master
+    - uses: actions/checkout@v3.0.0
     - name: shalzz/zola-deploy-action
-      uses: shalzz/zola-deploy-action@master
+      uses: shalzz/zola-deploy-action@v0.16.0
       env:
         PAGES_BRANCH: gh-pages
         BUILD_DIR: .
