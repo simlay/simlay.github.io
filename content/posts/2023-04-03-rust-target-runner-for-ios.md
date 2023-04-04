@@ -21,6 +21,8 @@ app's `Info.plist` is setup is liable to change and break in the future but
 this works with `macOS 13.3`, `Xcode 14.1` targeted at the `iOS 16.1`
 simulator.
 
+The source code for this post is available in the [`code` subdirectory of this repo](https://github.com/simlay/simlay.github.io/tree/master/code) if you want to use it.
+
 # Prior work
 
 I discovered [`cargo dinghy`](https://github.com/sonos/dinghy) a few years ago
@@ -91,7 +93,80 @@ error: test failed, to rerun pass `--bin rust-target-runner-for-ios`
 
 # Description
 
-Given that this script will certainly break in the future due to changes in either
+Given that this script will certainly break in the future due to changes with
+either `simctl` or the `Info.plist` specifications so I'll tell you about the
+sections.
+
+## App Bundle
+
+{{ source_code(
+    path="code/2023-04-03-rust-target-runner-for-ios/ios-sim-runner.sh",
+    source_type="sh",
+    start_line=7,
+    end_line=47
+    )
+ }}
+
+This is the section to bundle the executable that's the first argument into an
+iOS simulator app.
+
+## Device ID
+
+{{ source_code(
+    path="code/2023-04-03-rust-target-runner-for-ios/ios-sim-runner.sh",
+    source_type="sh",
+    start_line=49,
+    end_line=78
+    )
+ }}
+
+This whole section is about getting the `DEVICE_ID` as this is needed for the
+`get_app_container`. Otherwise, one can just use `booted` for most cases of
+device id.
+
+This will start an iOS simulator if one is not started.
+
+## Start the app
+
+{{ source_code(
+    path="code/2023-04-03-rust-target-runner-for-ios/ios-sim-runner.sh",
+    source_type="sh",
+    start_line=80,
+    end_line=96
+    )
+ }}
+
+Here we install the app bundle and start the app in waiting/debugger mode as
+we'll later use the `PID` to retrieve the exit status of the app and propagate
+the status code up.
+
+## LLDB
+{{ source_code(
+    path="code/2023-04-03-rust-target-runner-for-ios/ios-sim-runner.sh",
+    source_type="sh",
+    start_line=98,
+    end_line=104
+    )
+ }}
+{{ source_code(
+    path="code/2023-04-03-rust-target-runner-for-ios/ios-sim-runner.sh",
+    source_type="sh",
+    start_line=104,
+    end_line=128
+    )
+ }}
+{{ source_code(
+    path="code/2023-04-03-rust-target-runner-for-ios/ios-sim-runner.sh",
+    source_type="sh",
+    start_line=128
+    )
+ }}
+
+Here we:
+* create a very simple [`lldb` script](https://lldb.llvm.org/man/lldb.html#cmdoption-lldb-source)
+* run said lldb script
+* read the `stdout` parse it to retrieve the exit status.
+* Exit with the status code.
 
 # Future Work
 

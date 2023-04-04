@@ -76,14 +76,14 @@ ios_devices_get_id() {
 }
 DEVICE_ID=$(ios_devices_get_id)
 
-# Reinstall the app
+# Install/reinstall the app, Start the app in the iOS simulator but wait for
+# the debugger to attach
 xcrun simctl uninstall ${DEVICE_ID} ${IDENTIFIER}
 xcrun simctl install ${DEVICE_ID} ${BUNDLE_PATH}
 INSTALLED_PATH=$(xcrun simctl get_app_container ${DEVICE_ID} ${IDENTIFIER})
 APP_STDOUT=${INSTALLED_PATH}/stdout
 APP_STDERR=${INSTALLED_PATH}/stderr
 
-# Start the app in the iOS simulator but wait for the debugger to attach
 APP_PID=$(\
     xcrun simctl launch -w \
     --stdout=${APP_STDOUT} \
