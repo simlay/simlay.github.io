@@ -29,7 +29,7 @@ main_menu = [
     {url="/me/", name="me"},
 ]
 logo_text = "simlay"
-google_analytics = { enabled = true, id = "UA-44653605-1"}
+google_analytics = { enabled = true, id = "G-L9TH2L5VPT"}
 goatcounter_code = "simlay"
 read_more = "read more"
 og_preview_img = "simlay.png"
