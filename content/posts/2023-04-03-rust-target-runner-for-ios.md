@@ -1,8 +1,7 @@
 +++
 title = "Using rust's target runner for iOS simulators"
 date = 2023-04-03
-description = "This is a demonstration on using cargo run for iOS simulator targets"
-draft = true
+description = "This is an example of using cargo run for iOS simulator targets"
 +++
 
 # Introduction
