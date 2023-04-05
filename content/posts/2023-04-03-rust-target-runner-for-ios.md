@@ -101,8 +101,8 @@ sections.
 {{ source_code(
     path="code/2023-04-03-rust-target-runner-for-ios/ios-sim-runner.sh",
     source_type="sh",
-    start_line=7,
-    end_line=47
+    start_line=6,
+    end_line=46
     )
  }}
 
@@ -114,8 +114,8 @@ iOS simulator app.
 {{ source_code(
     path="code/2023-04-03-rust-target-runner-for-ios/ios-sim-runner.sh",
     source_type="sh",
-    start_line=49,
-    end_line=78
+    start_line=48,
+    end_line=77
     )
  }}
 
@@ -130,8 +130,8 @@ This will start an iOS simulator if one is not started.
 {{ source_code(
     path="code/2023-04-03-rust-target-runner-for-ios/ios-sim-runner.sh",
     source_type="sh",
-    start_line=80,
-    end_line=96
+    start_line=79,
+    end_line=95
     )
  }}
 
@@ -143,21 +143,21 @@ the status code up.
 {{ source_code(
     path="code/2023-04-03-rust-target-runner-for-ios/ios-sim-runner.sh",
     source_type="sh",
-    start_line=98,
-    end_line=104
+    start_line=97,
+    end_line=103
     )
  }}
 {{ source_code(
     path="code/2023-04-03-rust-target-runner-for-ios/ios-sim-runner.sh",
     source_type="sh",
-    start_line=104,
-    end_line=128
+    start_line=103,
+    end_line=127
     )
  }}
 {{ source_code(
     path="code/2023-04-03-rust-target-runner-for-ios/ios-sim-runner.sh",
     source_type="sh",
-    start_line=128
+    start_line=127
     )
  }}
 

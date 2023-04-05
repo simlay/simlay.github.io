@@ -1,5 +1,4 @@
 #!/bin/sh
-set -e
 set -o pipefail
 
 EXECUTABLE=$1
