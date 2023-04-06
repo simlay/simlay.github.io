@@ -39,8 +39,8 @@ PLIST="<?xml version=\"1.0\" encoding=\"UTF-8\"?>
     </dict>
 </plist>"
 
+rm -rf "${BUNDLE_PATH}" 2> /dev/null
 mkdir -p ${BUNDLE_PATH}
-rm ${BUNDLE_PATH}/* 2> /dev/null
 
 echo $PLIST > ${BUNDLE_PATH}/Info.plist
 cp ${EXECUTABLE} ${BUNDLE_PATH}
@@ -90,9 +90,6 @@ APP_PID=$(\
     --terminate-running-process ${DEVICE_ID} ${IDENTIFIER} ${ARGS} \
     | awk -F: '{print $2}')
 
-tail -f ${APP_STDOUT} &
-tail -f ${APP_STDERR} >&2 &
-
 # Attach to the app using lldb.
 LLDB_SCRIPT_FILE=$(mktemp /tmp/lldb_script.XXXXX)
 echo "attach ${APP_PID}" >> ${LLDB_SCRIPT_FILE}
@@ -132,4 +129,7 @@ STATUS_CODE=$(\
     grep -o "= \d\+" | \
     sed 's/= //g'\
 )
+cat ${APP_STDOUT}
+cat ${APP_STDERR} >&2
+
 exit ${STATUS_CODE}

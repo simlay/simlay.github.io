@@ -28,9 +28,9 @@ I discovered [`cargo dinghy`](https://github.com/sonos/dinghy) a few years ago
 and [added support for iOS simulator tests in
 CI](https://github.com/sonos/dinghy/pull/96). My complaints about using dinghy
 here are:
-* CI maybe compiling dinghy and then compile
-the project.
-* Recalling `cargo dinghy --platform auto-ios-aarch64-sim test`
+* CI compiling dinghy (if you don't have it cached) and then compiling the
+project. I've found this to result in longer CI times.
+* Recalling the arguments to dinghy such as `cargo dinghy --platform auto-ios-aarch64-sim test`
 
 
 # Setup
@@ -57,6 +57,12 @@ Here's the `ios-sim-runner.sh` script.
 
 # Usage
 
+With a simple rust `main.rs` or `lib.rs`:
+{{ source_code(
+    path="code/2023-04-03-rust-target-runner-for-ios/src/main.rs",
+    source_type="rust")
+ }}
+
 Put the `ios-sim-runner.sh` in your path or local to the project and the
 `.cargo/config.toml` in desired cargo configuration and then you'll be able to
 run:
@@ -64,30 +70,32 @@ run:
 `cargo test --target x86_64-apple-ios` or `cargo test --target
 aarch64-apple-ios-sim` and you'll see something like the following:
 ```
-   Compiling rust-target-runner-for-ios v0.1.0 (/Users/simlay/projects/simlay.github.io/code/2023-04-03-rust-target-runner-for-ios)
-    Finished test [unoptimized + debuginfo] target(s) in 0.42s
-     Running unittests src/main.rs (target/x86_64-apple-ios/debug/deps/rust_target_runner_for_ios-3d1ec4c5f726a109)
+    Finished test [unoptimized + debuginfo] target(s) in 0.00s
+     Running unittests src/main.rs (target/aarch64-apple-ios-sim/debug/deps/rust_target_runner_for_ios-21a08454287c0bcd)
 
 running 2 tests
-test tests::it_works ... ok
-test tests::it_no_work ... FAILED
+test tests::this_test_passes ... ok
+test tests::this_test_fails ... FAILED
 
 failures:
 
----- tests::it_no_work stdout ----
-thread 'tests::it_no_work' panicked at 'assertion failed: `(left != right)`
+---- tests::this_test_fails stdout ----
+thread 'tests::this_test_fails' panicked at 'assertion failed: `(left == right)`
   left: `4`,
- right: `4`', src/main.rs:26:9
+ right: `5`', src/main.rs:26:9
 note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
 
 
 failures:
-    tests::it_no_work
+    tests::this_test_fails
 
-test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 
 error: test failed, to rerun pass `--bin rust-target-runner-for-ios`
 ```
+
+One can do `cargo test --target aarch64-apple-ios-sim -- this_test_passes` or
+`cargo run --target aarch64-apple-ios-sim`
 
 
 # Description
@@ -131,7 +139,7 @@ This will start an iOS simulator if one is not started.
     path="code/2023-04-03-rust-target-runner-for-ios/ios-sim-runner.sh",
     source_type="sh",
     start_line=79,
-    end_line=95
+    end_line=92
     )
  }}
 
@@ -140,32 +148,33 @@ we'll later use the `PID` to retrieve the exit status of the app and propagate
 the status code up.
 
 ## LLDB
+
 {{ source_code(
     path="code/2023-04-03-rust-target-runner-for-ios/ios-sim-runner.sh",
     source_type="sh",
-    start_line=97,
-    end_line=103
+    start_line=93,
+    end_line=101
     )
  }}
 {{ source_code(
     path="code/2023-04-03-rust-target-runner-for-ios/ios-sim-runner.sh",
     source_type="sh",
-    start_line=103,
-    end_line=127
+    start_line=101,
+    end_line=124
     )
  }}
 {{ source_code(
     path="code/2023-04-03-rust-target-runner-for-ios/ios-sim-runner.sh",
     source_type="sh",
-    start_line=127
+    start_line=124
     )
  }}
 
 Here we:
 * create a very simple [`lldb` script](https://lldb.llvm.org/man/lldb.html#cmdoption-lldb-source)
 * run said lldb script
-* read the `stdout` parse it to retrieve the exit status.
-* Exit with the status code.
+* read the `stdout`, parse it, and retrieve the exit status.
+* exit with the status code.
 
 # Future Work
 

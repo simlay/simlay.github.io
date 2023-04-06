@@ -15,14 +15,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn it_works() {
+    fn this_test_passes() {
         let result = add(2, 2);
         assert_eq!(result, 4);
     }
 
     #[test]
-    fn it_no_work() {
+    fn this_test_fails() {
         let result = add(2, 2);
-        assert_ne!(result, 4);
+        assert_eq!(result, 5);
     }
 }
