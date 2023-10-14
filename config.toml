@@ -34,6 +34,7 @@ goatcounter_code = "simlay"
 read_more = "read more"
 og_preview_img = "simlay.png"
 mastodon_url = "https://hachyderm.io/@simlay"
+simlay_analytics = "E7B751699DC7"
 
 # Link in logo. Default returns you to $BASE_URL.
 #logo_home_link = "/"
