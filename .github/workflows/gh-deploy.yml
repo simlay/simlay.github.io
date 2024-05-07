@@ -11,7 +11,7 @@ jobs:
     name: zola-deploy-action
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4.1.4
+    - uses: actions/checkout@v4.1.5
       with:
         submodules: 'recursive'
     - name: shalzz/zola-deploy-action
