@@ -1,0 +1,12 @@
+[workspace]
+members = [
+    "ui_tests",
+]
+resolver = "2"
+
+[package]
+name = "use-objc2-xc-ui-automation"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]

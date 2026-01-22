@@ -1,0 +1,4 @@
+[package]
+name = "ui_tests"
+edition = "2024"
+[dependencies]
