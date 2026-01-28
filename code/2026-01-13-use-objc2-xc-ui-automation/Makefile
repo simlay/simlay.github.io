@@ -17,6 +17,9 @@ run: install
 record:
 	xcrun simctl io $(EMULATOR) recordVideo -f record.mp4
 
+watch:
+	cargo watch -s 'make run' -w ./src -w ./Cargo.toml -w ./ui_tests/
+
 compress-recording:
 	ffmpeg -i record.mp4 -c:v libx264 -crf 30 record-compressed.mp4
 
@@ -79,9 +82,9 @@ ui-tests-cov: ui-tests-run
 	$(LLVM_PROFDATA)  merge -sparse ./target/cov/xctrunner.profraw -o ./target/cov/xctrunner.profdata
 	$(LLVM_PROFDATA)  merge -sparse    ./target/cov/dinghy.profraw -o ./target/cov/dinghy.profdata
 	$(COV_REPORT) ./target/cov/xctrunner.profdata ./target/aarch64-apple-ios-sim/debug/ui_tests
-	$(COV_REPORT) ./target/cov/dinghy.profdata    ./target/aarch64-apple-ios-sim/debug/examples/simple
+	$(COV_REPORT) ./target/cov/dinghy.profdata    ./target/aarch64-apple-ios-sim/debug/use-objc2-xc-ui-automation
 	$(COV_EXPORT) ./target/cov/xctrunner.profdata ./target/aarch64-apple-ios-sim/debug/ui_tests        > ./target/cov/xctrunner-lcov.info
-	$(COV_EXPORT) ./target/cov/dinghy.profdata    ./target/aarch64-apple-ios-sim/debug/examples/simple > ./target/cov/dinghy-lcov.info
+	$(COV_EXPORT) ./target/cov/dinghy.profdata    ./target/aarch64-apple-ios-sim/debug/use-objc2-xc-ui-automation > ./target/cov/dinghy-lcov.info
 	genhtml ./target/cov/dinghy-lcov.info ./target/cov/xctrunner-lcov.info -o ./target/cov/
 
 .EXPORT_ALL_VARIABLES:

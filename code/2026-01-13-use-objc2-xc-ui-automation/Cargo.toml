@@ -10,3 +10,17 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+objc2 = "0.6"
+objc2-foundation = "0.3"
+objc2-ui-kit = "0.3"
+block2 = "0.6"
+
+[patch.crates-io]
+objc2-xc-test          = { git = "https://github.com/madsmtm/objc2/", rev = "81bc8415638a64ca86ccaa7dacd8c9f643354801" }
+objc2-xc-ui-automation = { git = "https://github.com/madsmtm/objc2/", rev = "81bc8415638a64ca86ccaa7dacd8c9f643354801" }
+objc2                  = { git = "https://github.com/madsmtm/objc2/", rev = "81bc8415638a64ca86ccaa7dacd8c9f643354801" }
+objc2-core-foundation  = { git = "https://github.com/madsmtm/objc2/", rev = "81bc8415638a64ca86ccaa7dacd8c9f643354801" }
+objc2-ui-kit           = { git = "https://github.com/madsmtm/objc2/", rev = "81bc8415638a64ca86ccaa7dacd8c9f643354801" }
+objc2-foundation       = { git = "https://github.com/madsmtm/objc2/", rev = "81bc8415638a64ca86ccaa7dacd8c9f643354801" }
+objc2-quartz-core      = { git = "https://github.com/madsmtm/objc2/", rev = "81bc8415638a64ca86ccaa7dacd8c9f643354801" }
+block2                 = { git = "https://github.com/madsmtm/objc2/", rev = "81bc8415638a64ca86ccaa7dacd8c9f643354801" }
