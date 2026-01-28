@@ -1,21 +1,28 @@
 +++
 title = "Writing iOS XCTests in Rust"
 date = 2026-01-28
-description = "Use objc2-xc-ui-test in an iOS app"
+description = "Use objc2-xc-ui-test, objc2-xc-test to test and iOS app as well as get code coverage reports."
 +++
 
 # Introduction
-
 
 In this post, I'll briefly show how to bundle a rust binary into an iOS app as
 well as the complexities of bundling a XCTest app written in rust. I can't say
 that this should be used in production as I only figured out how to do this a
 few months (~November 2025) so this might be a brittle setup.
 
+I'll also briefly touch on how to get code coverage reports via the XCTest and
+App itself.
+
 The code here is available in [`code` subdirectory of this
 repo](https://github.com/simlay/simlay.github.io/tree/master/code) if you want
 to use it.
 
+Running the stuff from this post requires:
+* xcode installed
+* the iphone SDK tooling installed
+* rust installed along with the `aarch64-apple-ios-sim` target
+* Starting the `iPhone 16e` simulator.
 
 # Background
 
@@ -211,6 +218,9 @@ With that in mind, we can make the `ui-tests-cov` just depend on `ui-tests-run`.
     end_line=89
     )
 }}
+
+Assuming you've got the `genhtml` installed, this will generate a coverage
+report html in `target/cov/index.html`.
 
 
 ## build.rs
