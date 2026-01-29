@@ -46,16 +46,16 @@ define_class!(
             }
 
             app.launch();
-            let text_view = app.textFields().elementBoundByIndex(0);
+            let text_view = app.textFields().element();
             text_view.tap();
             text_view.typeText(&NSString::from_str(" THIS TEXT IS FROM XCTEST"));
-            save_screenshot(&app.screenshot());
 
             let device = XCUIDevice::sharedDevice(self.mtm());
             let siri = device.siriService();
             siri.activateWithVoiceRecognitionText(&NSString::from_str("What is the capital of germany?"));
 
-            std::thread::sleep(std::time::Duration::from_millis(500));
+            std::thread::sleep(std::time::Duration::from_millis(1000));
+            save_screenshot(&app.screenshot());
 
             device.pressButton(objc2_xc_ui_automation::XCUIDeviceButton::Home);
             device.pressButton(objc2_xc_ui_automation::XCUIDeviceButton::Home);

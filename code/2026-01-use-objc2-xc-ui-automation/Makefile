@@ -64,7 +64,7 @@ ui-tests-run: install ui-tests-install ui-tests-xctest-configuration
 
 ui-tests-cp-screenshot:
 	cp "$(XCTEST_CONTAINER)/Documents/screenshot.png" ui_tests.png
-	sips -Z 1278 ui_tests.png
+	sips -Z 640 ui_tests.png
 
 LLVM_COV=$(shell rustc --print sysroot)/lib/rustlib/aarch64-apple-darwin/bin/llvm-cov
 LLVM_PROFDATA=$(shell rustc --print sysroot)/lib/rustlib/aarch64-apple-darwin/bin/llvm-profdata

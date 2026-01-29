@@ -24,19 +24,51 @@ Running the stuff from this post requires:
 * rust installed along with the `aarch64-apple-ios-sim` target
 * Starting the `iPhone 16e` simulator.
 
+
 # Background
 
 While `XCTest` has been around since [Xcode
 5](https://developer.apple.com/documentation/xctest), `XCUIAutomation` wasn't
 it's own framework nor in the public framework list until [Xcode
 16.3](https://developer.apple.com/documentation/xcode-release-notes/xcode-16_3-release-notes#Testing-and-Automation).
-When it was added as a public API (rather than private). This change enabled
+When it was added as a public API (rather than private), this change enabled
 [objc2](https://github.com/madsmtm/objc2) to generate bindings for
 [`objc2-xc-test`](https://crates.io/crates/objc2-xc-test) and
-[`objc2-xc-ui-automation`](https://crates.io/crates/objc2-xc-ui-automation)
-headers and generating some pretty ergonomic bindings for apple frameworks.
+[`objc2-xc-ui-automation`](https://crates.io/crates/objc2-xc-ui-automation).
 These two rust crates call into the Objective-C APIs for `XCTest` and
 `XCUIAutomation`.
+
+I don't believe it's very well documented how an XCTest app is ran. What I can
+say is that it's packaged similar to a regular iOS app but the executable is
+either derived from or is the `XCTRunner` which I've shown here. I hypothesize
+that this executable looks for things that derive from the Objective-C `XCTest`
+class. Later in this post you'll see a `#[ctor::ctor]` around a function that
+just calls `let _ = TestCase::class();`
+
+
+This is more or less the architecture. RustWrapper is the app we're testing
+against and RustUIWrapper is the app doing the testing/automating.
+
+```
+|-----------------|                                         |-----------------|
+|                 |             app.launch()                |                 |
+|  RustUIWrapper  |                 ->                      |   RustWrapper   |
+|                 |             app.state()                 |                 |
+|-----------------|                                         |-----------------|
+```
+
+Then to do an action it's something like:
+```
+|-----------------|                                         |-----------------|
+|                 |  let input = app.textFields().element() |    No text      |
+|  RustUIWrapper  |                ->                       |   RustWrapper   |
+|                 |            input.tap()                  |   Now has text  |
+|-----------------|     input.typeText(foo_ns_string);      |-----------------|
+```
+
+In theory, one could be writing these UI Tests against a react-native app rather
+than a Rust `objc2-ui-kit` app.
+
 
 Note: These bindings are generated based on [targeting macOS for
 now](https://github.com/madsmtm/objc2/issues/408). [Various work arounds for
@@ -53,7 +85,7 @@ directory suffixed with `.app`, an `Info.plist` and a binary.
 The simplest manifest(`Info.plist`) I've found is:
 
 {{ source_code(
-    path="code/2026-01-13-use-objc2-xc-ui-automation/RustWrapper.app/Info.plist",
+    path="code/2026-01-use-objc2-xc-ui-automation/RustWrapper.app/Info.plist",
     source_type="xml"
     )
 }}
@@ -66,7 +98,7 @@ com.simlay.net.Dinghy`.
 Given that bundling is a post-`cargo build` step, I wrap this in a `Makefile`:
 
 {{ source_code(
-    path="code/2026-01-13-use-objc2-xc-ui-automation/Makefile",
+    path="code/2026-01-use-objc2-xc-ui-automation/Makefile",
     source_type="Makefile",
     start_line=1,
     end_line=16
@@ -93,7 +125,7 @@ It's a little out of scope for this post but the smallest "app" I've found for
 this to be a single view that's just a `UITextField`.
 
 {{ source_code(
-    path="code/2026-01-13-use-objc2-xc-ui-automation/src/main.rs",
+    path="code/2026-01-use-objc2-xc-ui-automation/src/main.rs",
     source_type="rust"
     )
 }}
@@ -113,7 +145,7 @@ To use the XCTest and XCUIAutomation from rust you declare the class and use
 
 
 {{ source_code(
-    path="code/2026-01-13-use-objc2-xc-ui-automation/ui_tests/src/main.rs",
+    path="code/2026-01-use-objc2-xc-ui-automation/ui_tests/src/main.rs",
     source_type="rust"
     )
 }}
@@ -173,7 +205,7 @@ into the `RustUITests-Runner.app/Frameworks` directory
 and `SIMCTL_CHILD_DINGHY_LLVM_PROFILE_FILE` to enable code coverage.
 
 {{ source_code(
-    path="code/2026-01-13-use-objc2-xc-ui-automation/Makefile",
+    path="code/2026-01-use-objc2-xc-ui-automation/Makefile",
     source_type="make",
     start_line=25,
     end_line=67
@@ -181,8 +213,16 @@ and `SIMCTL_CHILD_DINGHY_LLVM_PROFILE_FILE` to enable code coverage.
 }}
 
 Throw this all together and `make ui-tests-run` should bundle up both apps,
-      install them into the simulator, and run the XCTests. Generally
-      incremental builds here take 10 seconds no matter what.
+      install them into the simulator, and run the XCTests. Generally, after
+      `cargo build` finishes, this still takes about 10 seconds to bundle,
+      install and run. More if there is an error in the XCTests.
+
+At the end of the `ui-tests-run` rule, it calls `make ui-tests-cp-screenshot`.
+This copies the created screenshot from the app's data directory to the local
+one and compresses the image. I've compressed the image quite but you can get
+the gist:
+
+![](../../posts/2026-01-use-objc2-xc-ui-automation/ui_tests.png)
 
 ## Test Coverage reports
 
@@ -203,7 +243,7 @@ handler for `UIApplicationDidEnterBackgroundNotification` to call
 backgrounded, it writes the profile file to `LLVM_PROFILE_FILE`.
 
 {{ source_code(
-    path="code/2026-01-13-use-objc2-xc-ui-automation/src/main.rs",
+    path="code/2026-01-use-objc2-xc-ui-automation/src/main.rs",
     source_type="rust",
     start_line=70
     )
@@ -212,7 +252,7 @@ backgrounded, it writes the profile file to `LLVM_PROFILE_FILE`.
 With that in mind, we can make the `ui-tests-cov` just depend on `ui-tests-run`.
 
 {{ source_code(
-    path="code/2026-01-13-use-objc2-xc-ui-automation/Makefile",
+    path="code/2026-01-use-objc2-xc-ui-automation/Makefile",
     source_type="make",
     start_line=69,
     end_line=89
@@ -231,7 +271,7 @@ frameworks. Also because this requires the `ui_tests` to be in it's own crate
 in the workspace.
 
 {{ source_code(
-    path="code/2026-01-13-use-objc2-xc-ui-automation/ui_tests/build.rs",
+    path="code/2026-01-use-objc2-xc-ui-automation/ui_tests/build.rs",
     source_type="rust"
     )
 }}
@@ -253,7 +293,7 @@ of reverse engineering throwing in the App's ID and the container path.
 
 This is a pretty brittle setup and I'm not sure I suggest it in production. One
 can't get the exit status easily, getting this to run on a device is still
-quite unknown (how do I get the data container on device?).
+quite unclear - How do I get the data container on device?.
 
 Once setup, I find the TUI interface for development a lot nicer in general.
 The `xcodebuild` tooling is just a bit worse than a set of make lines. It
