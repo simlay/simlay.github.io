@@ -15,8 +15,8 @@ I'll also briefly touch on how to get code coverage reports via the XCTest and
 App itself.
 
 The code here is available in [`code` subdirectory of this
-repo](https://github.com/simlay/simlay.github.io/tree/master/code) if you want
-to use it.
+repo](https://github.com/simlay/simlay.github.io/tree/master/code/2026-01-use-objc2-xc-ui-automation)
+if you want to use it.
 
 Running the stuff from this post requires:
 * xcode installed
@@ -74,7 +74,10 @@ than a Rust `objc2-ui-kit` app.
 
 Note: These bindings are generated based on [targeting macOS for
 now](https://github.com/madsmtm/objc2/issues/408). [Various work arounds for
-some calls have been added](https://github.com/madsmtm/objc2/pull/809).
+some calls have been added](https://github.com/madsmtm/objc2/pull/809). For
+this reason, the examples here are using a `[patch.crate-io]` for the objc2
+crates. This also enables us to a nicer/not-yet-released `declare_class!` macro
+from `objc2`
 
 
 # Rust iOS app bundling hacks
@@ -304,3 +307,6 @@ should be noted that `Xcode` isn't needed to be open for this at all.
 The other cool thing about this setup is that one can run XCTests against an
 app that's not in the same project. I actually spent a lot of time trying to
 write automation tests against Safari in the simulator (it did not work).
+
+Shout out to [mads](https://github.com/madsmtm/) for doing great work on all
+the things in `objc2`.
