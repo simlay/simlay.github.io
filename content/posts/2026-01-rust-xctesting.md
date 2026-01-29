@@ -24,6 +24,8 @@ Running the stuff from this post requires:
 * rust installed along with the `aarch64-apple-ios-sim` target
 * Starting the `iPhone 16e` simulator.
 
+This post is best viewed on desktop.
+
 
 # Background
 
