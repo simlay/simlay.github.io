@@ -8,8 +8,8 @@ description = "Use objc2-xc-ui-test, objc2-xc-test to test and iOS app as well a
 
 In this post, I'll briefly show how to bundle a rust binary into an iOS app as
 well as the complexities of bundling a XCTest app written in rust. I can't say
-that this should be used in production as I only figured out how to do this a
-few months (~November 2025) so this might be a brittle setup.
+that this should be used in production. I only figured out how to do this a
+few months ago (~November 2025) so this might be a brittle setup.
 
 I'll also briefly touch on how to get code coverage reports via the XCTest and
 App itself.
@@ -48,13 +48,13 @@ class. Later in this post you'll see a `#[ctor::ctor]` around a function that
 just calls `let _ = TestCase::class();`
 
 
-This is more or less the architecture. RustWrapper is the app we're testing
-against and RustUIWrapper is the app doing the testing/automating.
+This is more or less the architecture. RustApp is the app we're testing
+against and RustUITests is the app doing the testing/automating.
 
 ```
 |-----------------|                                         |-----------------|
 |                 |             app.launch()                |                 |
-|  RustUIWrapper  |                 ->                      |   RustWrapper   |
+|  RustUITests    |                 ->                      |     RustApp     |
 |                 |             app.state()                 |                 |
 |-----------------|                                         |-----------------|
 ```
@@ -62,8 +62,8 @@ against and RustUIWrapper is the app doing the testing/automating.
 Then to do an action it's something like:
 ```
 |-----------------|                                         |-----------------|
-|                 |  let input = app.textFields().element() |    No text      |
-|  RustUIWrapper  |                ->                       |   RustWrapper   |
+|                 |  let input = app.textFields().element() |     No text     |
+|  RustUITests    |                ->                       |     RustApp     |
 |                 |            input.tap()                  |   Now has text  |
 |-----------------|     input.typeText(foo_ns_string);      |-----------------|
 ```
@@ -90,7 +90,7 @@ directory suffixed with `.app`, an `Info.plist` and a binary.
 The simplest manifest(`Info.plist`) I've found is:
 
 {{ source_code(
-    path="code/2026-01-use-objc2-xc-ui-automation/RustWrapper.app/Info.plist",
+    path="code/2026-01-use-objc2-xc-ui-automation/RustApp.app/Info.plist",
     source_type="xml"
     )
 }}
@@ -119,8 +119,8 @@ This should output:
 $ make run
 cargo build --target aarch64-apple-ios-sim --all --all-targets
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.00s
-cp ./target/aarch64-apple-ios-sim/debug/use-objc2-xc-ui-automation ./RustWrapper.app/
-xcrun simctl install 'iPhone 16e' ./RustWrapper.app/
+cp ./target/aarch64-apple-ios-sim/debug/use-objc2-xc-ui-automation ./RustApp.app/
+xcrun simctl install 'iPhone 16e' ./RustApp.app/
 xcrun simctl launch --console --terminate-running-process 'iPhone 16e' com.simlay.net.Dinghy
 com.simlay.net.Dinghy: 74660
 Hello, world!
@@ -131,9 +131,14 @@ this to be a single view that's just a `UITextField`.
 
 {{ source_code(
     path="code/2026-01-use-objc2-xc-ui-automation/src/main.rs",
-    source_type="rust"
+    source_type="rust",
+    start_line=1,
+    end_line=69
     )
 }}
+
+The thing missing in this file is the definition of `set_llvm_profile_write`
+which is covered in the code coverage section below.
 
 # Using `objc2-xc-test` and `objc2-xc-ui-automation`
 
@@ -161,7 +166,7 @@ Bundling the XCTest into an "iOS app" is a lot more difficult. We need:
 * `build.rs`
 * `ui_tests.xctestconfiguration` - this is generated from
 `ui_tests.xctestconfiguration.base` with some `sed` text replacements.
-* `RustUITests-Runner.app` and a `Info.plist`
+* `RustUITests.app` and a `Info.plist`
 * `DinghyUITests.xctest/Info.plist`.
 
 
@@ -172,7 +177,7 @@ $ tree
 ├── Cargo.lock
 ├── Cargo.toml
 ├── Makefile
-├── RustUITests-Runner.app
+├── RustUITests.app
 │   ├── Frameworks
 │   ├── Info.plist
 │   ├── PlugIns
@@ -180,7 +185,7 @@ $ tree
 │   │       ├── Info.plist
 │   │       └── ui_tests
 │   └── XCTRunner
-├── RustWrapper.app
+├── RustApp.app
 │   ├── Info.plist
 │   └── use-objc2-xc-ui-automation
 ├── src
@@ -198,15 +203,15 @@ $ tree
 
 The makefile that wraps these things is a bit chaotic. But the general steps are:
 * Build the `ui_tests` binary.
-* Copy it into the `RustUITests-Runner.app/Plugins/DinghyUITests.xctest/` directory.
+* Copy it into the `RustUITests.app/Plugins/DinghyUITests.xctest/` directory.
 * Copy a number of frameworks from the
 `IPhoneSimulator.platform/Developer/Library/Frameworks` from the xcode SDKs
-into the `RustUITests-Runner.app/Frameworks` directory
+into the `RustUITests.app/Frameworks` directory
 * Install the app to be tested in the iOS simulator
 * Install the UITest app into the iOS simulator
 * Get both of their app containers (`xcrun simctl get_container`)
 * Do a `sed` replacement on the container path for the xctest.configuration
-* Launch the `RustUITests-Runner` app with `SIMCTL_CHILD_LLVM_PROFILE_FILE=`
+* Launch the `RustUITests` app with `SIMCTL_CHILD_LLVM_PROFILE_FILE=`
 and `SIMCTL_CHILD_DINGHY_LLVM_PROFILE_FILE` to enable code coverage.
 
 {{ source_code(
@@ -247,10 +252,11 @@ handler for `UIApplicationDidEnterBackgroundNotification` to call
 `__llvm_profile_write_file`. This is pretty hacky but when the app is
 backgrounded, it writes the profile file to `LLVM_PROFILE_FILE`.
 
+
 {{ source_code(
     path="code/2026-01-use-objc2-xc-ui-automation/src/main.rs",
     source_type="rust",
-    start_line=70
+    start_line=71
     )
 }}
 

@@ -6,10 +6,10 @@ build:
 	cargo build --target aarch64-apple-ios-sim --all --all-targets
 
 bundle: build
-	cp ./target/aarch64-apple-ios-sim/debug/use-objc2-xc-ui-automation ./RustWrapper.app/
+	cp ./target/aarch64-apple-ios-sim/debug/use-objc2-xc-ui-automation ./RustApp.app/
 
 install: bundle
-	xcrun simctl install $(EMULATOR) ./RustWrapper.app/
+	xcrun simctl install $(EMULATOR) ./RustApp.app/
 
 run: install
 	xcrun simctl launch --console --terminate-running-process $(EMULATOR) $(WRAPPER_ID)
@@ -27,18 +27,18 @@ ui-tests-build:
 	cargo build -p ui_tests
 
 ui-tests-bundle-tools: ui-tests-build
-	cp $(shell xcode-select --print-path)/Platforms/IPhoneSimulator.platform/Developer/Library/Xcode/Agents/XCTRunner.app/XCTRunner                ./RustUITests-Runner.app/
-	cp -r $(shell xcode-select --print-path)/Platforms/IPhoneSimulator.platform/Developer/Library/Frameworks                                       ./RustUITests-Runner.app/
-	cp -r $(shell xcode-select --print-path)/Platforms/IPhoneSimulator.platform/Developer/Library/PrivateFrameworks/XCTestCore.framework           ./RustUITests-Runner.app/Frameworks/
-	cp -r $(shell xcode-select --print-path)/Platforms/IPhoneSimulator.platform/Developer/Library/PrivateFrameworks/XCTestSupport.framework        ./RustUITests-Runner.app/Frameworks/
-	cp -r $(shell xcode-select --print-path)/Platforms/IPhoneSimulator.platform/Developer/Library/PrivateFrameworks/XCUnit.framework               ./RustUITests-Runner.app/Frameworks/
-	cp -r $(shell xcode-select --print-path)/Platforms/IPhoneSimulator.platform/Developer/Library/PrivateFrameworks/XCTAutomationSupport.framework ./RustUITests-Runner.app/Frameworks/
+	cp $(shell xcode-select --print-path)/Platforms/IPhoneSimulator.platform/Developer/Library/Xcode/Agents/XCTRunner.app/XCTRunner                ./RustUITests.app/
+	cp -r $(shell xcode-select --print-path)/Platforms/IPhoneSimulator.platform/Developer/Library/Frameworks                                       ./RustUITests.app/
+	cp -r $(shell xcode-select --print-path)/Platforms/IPhoneSimulator.platform/Developer/Library/PrivateFrameworks/XCTestCore.framework           ./RustUITests.app/Frameworks/
+	cp -r $(shell xcode-select --print-path)/Platforms/IPhoneSimulator.platform/Developer/Library/PrivateFrameworks/XCTestSupport.framework        ./RustUITests.app/Frameworks/
+	cp -r $(shell xcode-select --print-path)/Platforms/IPhoneSimulator.platform/Developer/Library/PrivateFrameworks/XCUnit.framework               ./RustUITests.app/Frameworks/
+	cp -r $(shell xcode-select --print-path)/Platforms/IPhoneSimulator.platform/Developer/Library/PrivateFrameworks/XCTAutomationSupport.framework ./RustUITests.app/Frameworks/
 
 ui-tests-bundle: ui-tests-bundle-tools
-	cp ./target/aarch64-apple-ios-sim/debug/ui_tests  ./RustUITests-Runner.app/Plugins/DinghyUITests.xctest/
+	cp ./target/aarch64-apple-ios-sim/debug/ui_tests  ./RustUITests.app/Plugins/DinghyUITests.xctest/
 
 ui-tests-install: ui-tests-bundle
-	xcrun simctl install $(EMULATOR) RustUITests-Runner.app/
+	xcrun simctl install $(EMULATOR) RustUITests.app/
 
 XCWRAPPER_ID=com.simlay.net.DinghyUITests.xctrunner
 
