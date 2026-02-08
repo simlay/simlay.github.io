@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+    <title>Using rust&#x27;s target runner for iOS simulators - Sebastian Imlay</title>
+    
+    
+    <meta http-equiv="content-type" content="text/html; charset=utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1"><meta name="description" content="The home of simlay.net Using rust&#x27;s target runner for iOS simulators This is an example of using cargo run for iOS simulator targets"/>
+    <meta property="og:title" content="simlay -&nbsp;Using rust&#x27;s target runner for iOS simulators" />
+    <meta property="og:type" content="website"/><meta property="og:url" content="https:&#x2F;&#x2F;simlay.net&#x2F;posts&#x2F;rust-target-runner-for-ios&#x2F;"/><meta property="og:description" content="This is an example of using cargo run for iOS simulator targets"/><meta property="og:image" content="https://simlay.net/simlay.png"/>
+    <link rel="preload" href="https://simlay.net/assets/fonts/FiraCode-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+    <link rel="preload" href="https://simlay.net/assets/fonts/FiraCode-Bold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+
+    <link rel="stylesheet" href="https://simlay.net/style.css?h=97e262212a0704163528">
+    <link rel="stylesheet" href="https://simlay.net/color/blue.css?h=43198b832df0f2b5f2cf">
+<!-- Google Analytics -->
+        <script async src="https://www.googletagmanager.com/gtag/js?id=UA-44653605-1"></script>
+        <script>
+            window.dataLayer = window.dataLayer || [];
+            function gtag(){dataLayer.push(arguments);}
+            gtag('js', new Date());
+            gtag('config', 'UA-44653605-1');
+        </script>
+    </head>
+    <body>
+        <div class="container">
+<header class="header">
+    <div class="header__inner">
+        <div class="header__logo">
+            <a href="https:&#x2F;&#x2F;simlay.net">
+    <div class="logo">
+        simlay
+    </div>
+</a>
+        </div>
+        <div class="menu-trigger">menu</div>
+    </div>
+    
+    <nav class="menu">
+        <ul class="menu__inner menu__inner--desktop">
+            
+            
+        <li>
+            <a href="
+    
+        https://simlay.net/me
+    
+">me</a>
+        </li></ul>
+
+        <ul class="menu__inner menu__inner--mobile">
+            
+        <li>
+            <a href="
+    
+        https://simlay.net/me
+    
+">me</a>
+        </li>
+        </ul>
+    </nav>
+
+    </header>
+<div class="content"><article class="post">
+        <header>
+            <h1 class="post-title">
+                <a href="https:&#x2F;&#x2F;simlay.net&#x2F;posts&#x2F;rust-target-runner-for-ios&#x2F;">Using rust&#x27;s target runner for iOS simulators</a>
+            </h1>
+            
+    <div class="post-meta">
+        <span class="post-date">2023.04.03
+                </span>
+
+        <span class="post-author"></span>
+
+        
+
+    
+    </div>
+
+            
+    
+</header><h1 id="introduction">Introduction<a class="zola-anchor" href="#introduction" aria-label="Anchor link for: introduction">§</a>
+</h1>
+<p>I've become a pretty big fan for rust and cargo. I've found it quite convenient
+to run <code>cargo run</code> or <code>cargo test</code>. This doesn't work quite as nicely if you're
+cross compiling. Fortunately, there's the <a rel="external" href="https://doc.rust-lang.org/cargo/reference/config.html#targettriplerunner"><code>target.&lt;tripple&gt;.runner</code> cargo
+feature</a>.
+Unfortunately, I've found it hard to find example uses of this. An <a rel="external" href="https://github.com/search?p=3&amp;q=runner+%3D+language%3ATOML+filename%3Aconfig.toml&amp;type=Code">advanced
+search on GitHub for <code>runner = </code> in
+<code>config.toml</code></a>
+is how I've found other examples.</p>
+<p>In this post, I demonstrate an iOS simulator target runner script. The way the
+app's <code>Info.plist</code> is setup is liable to change and break in the future but
+this works with <code>macOS 13.3</code>, <code>Xcode 14.1</code> targeted at the <code>iOS 16.1</code>
+simulator.</p>
+<p>The source code for this post is available in the <a rel="external" href="https://github.com/simlay/simlay.github.io/tree/master/code"><code>code</code> subdirectory of this repo</a> if you want to use it.</p>
+<h1 id="prior-work">Prior work<a class="zola-anchor" href="#prior-work" aria-label="Anchor link for: prior-work">§</a>
+</h1>
+<p>I discovered <a rel="external" href="https://github.com/sonos/dinghy"><code>cargo dinghy</code></a> a few years ago
+and <a rel="external" href="https://github.com/sonos/dinghy/pull/96">added support for iOS simulator tests in
+CI</a>. My complaints about using dinghy
+here are:</p>
+<ul>
+<li>CI compiling dinghy (if you don't have it cached) and then compiling the
+project. I've found this to result in longer CI times.</li>
+<li>Recalling the arguments to dinghy such as <code>cargo dinghy --platform auto-ios-aarch64-sim test</code></li>
+</ul>
+<h1 id="setup">Setup<a class="zola-anchor" href="#setup" aria-label="Anchor link for: setup">§</a>
+</h1>
+<p>To get started, you need to specify the <a rel="external" href="https://doc.rust-lang.org/cargo/reference/config.html#targettriplerunner">target runner for
+cargo</a></p>
+<pre class="giallo" style="color: #D5CED9; background-color: #23262E;"><code data-lang="rust"><span class="giallo-l"><span>[</span><span style="color: #00E8C6;">target</span><span style="color: #EE5D43;">.</span><span>aarch64</span><span style="color: #EE5D43;">-</span><span style="color: #00E8C6;">apple</span><span style="color: #EE5D43;">-</span><span style="color: #00E8C6;">ios</span><span style="color: #EE5D43;">-</span><span style="color: #00E8C6;">sim</span><span>]</span></span>
+<span class="giallo-l"><span style="color: #00E8C6;">runner</span><span style="color: #EE5D43;"> =</span><span style="color: #96E072;"> &quot;./ios-sim-runner.sh&quot;</span></span>
+<span class="giallo-l"><span>[</span><span style="color: #00E8C6;">target</span><span style="color: #EE5D43;">.</span><span>x86_64</span><span style="color: #EE5D43;">-</span><span style="color: #00E8C6;">apple</span><span style="color: #EE5D43;">-</span><span style="color: #00E8C6;">ios</span><span>]</span></span>
+<span class="giallo-l"><span style="color: #00E8C6;">runner</span><span style="color: #EE5D43;"> =</span><span style="color: #96E072;"> &quot;./ios-sim-runner.sh&quot;</span></span></code></pre>
+<p>This <a rel="external" href="https://doc.rust-lang.org/cargo/reference/config.html#hierarchical-structure">cargo
+config</a>
+tells cargo what script/executable to use when running <code>cargo run --target aarch64-apple-ios-sim -- arg1 arg2</code>. The arguments to this script/executable
+are the path to the target binary and then the arguments to said binary.</p>
+<p>Here's the <code>ios-sim-runner.sh</code> script.</p>
+<pre class="giallo" style="color: #D5CED9; background-color: #23262E;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #A0A1A7CC;">#!/bin/sh</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">set</span><span style="color: #EE5D43;"> -o</span><span style="color: #96E072;"> pipefail</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #00E8C6;">EXECUTABLE</span><span style="color: #EE5D43;">=</span><span style="color: #00E8C6;">$1</span></span>
+<span class="giallo-l"><span style="color: #00E8C6;">ARGS</span><span style="color: #EE5D43;">=</span><span>${</span><span style="color: #EE5D43;">@:</span><span style="color: #00E8C6;">2</span><span>}</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #00E8C6;">IDENTIFIER</span><span style="color: #EE5D43;">=</span><span style="color: #96E072;">&quot;com.simlay.net.RustRunner&quot;</span></span>
+<span class="giallo-l"><span style="color: #00E8C6;">DISPLAY_NAME</span><span style="color: #EE5D43;">=</span><span style="color: #96E072;">&quot;RustRunner&quot;</span></span>
+<span class="giallo-l"><span style="color: #00E8C6;">BUNDLE_NAME</span><span style="color: #EE5D43;">=</span><span>${</span><span style="color: #00E8C6;">DISPLAY_NAME</span><span>}</span><span style="color: #96E072;">.App</span></span>
+<span class="giallo-l"><span style="color: #00E8C6;">EXECUTABLE_NAME</span><span style="color: #EE5D43;">=</span><span>$(</span><span style="color: #FFE66D;">basename</span><span> ${</span><span style="color: #00E8C6;">EXECUTABLE</span><span>})</span></span>
+<span class="giallo-l"><span style="color: #00E8C6;">BUNDLE_PATH</span><span style="color: #EE5D43;">=</span><span>$(</span><span style="color: #FFE66D;">dirname</span><span style="color: #00E8C6;"> $EXECUTABLE</span><span>)</span><span style="color: #96E072;">/</span><span>${</span><span style="color: #00E8C6;">BUNDLE_NAME</span><span>}</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #00E8C6;">PLIST</span><span style="color: #EE5D43;">=</span><span style="color: #96E072;">&quot;&lt;?xml version=</span><span style="color: #EE5D43;">\&quot;</span><span style="color: #96E072;">1.0</span><span style="color: #EE5D43;">\&quot;</span><span style="color: #96E072;"> encoding=</span><span style="color: #EE5D43;">\&quot;</span><span style="color: #96E072;">UTF-8</span><span style="color: #EE5D43;">\&quot;</span><span style="color: #96E072;">?&gt;</span></span>
+<span class="giallo-l"><span style="color: #96E072;">    &lt;!DOCTYPE plist PUBLIC </span><span style="color: #EE5D43;">\&quot;</span><span style="color: #96E072;">-//Apple Computer//DTD PLIST 1.0//EN</span><span style="color: #EE5D43;">\&quot;</span></span>
+<span class="giallo-l"><span style="color: #EE5D43;">    \&quot;</span><span style="color: #96E072;">http://www.apple.com/DTDs/PropertyList-1.0.dtd</span><span style="color: #EE5D43;">\&quot;</span><span style="color: #96E072;">&gt;</span></span>
+<span class="giallo-l"><span style="color: #96E072;">    &lt;plist version=</span><span style="color: #EE5D43;">\&quot;</span><span style="color: #96E072;">1.0</span><span style="color: #EE5D43;">\&quot;</span><span style="color: #96E072;">&gt;</span></span>
+<span class="giallo-l"><span style="color: #96E072;">    &lt;dict&gt;</span></span>
+<span class="giallo-l"><span style="color: #96E072;">    &lt;key&gt;CFBundleIdentifier&lt;/key&gt;</span></span>
+<span class="giallo-l"><span style="color: #96E072;">    &lt;string&gt;${</span><span style="color: #00E8C6;">IDENTIFIER</span><span style="color: #96E072;">}&lt;/string&gt;</span></span>
+<span class="giallo-l"><span style="color: #96E072;">    &lt;key&gt;CFBundleDisplayName&lt;/key&gt;</span></span>
+<span class="giallo-l"><span style="color: #96E072;">    &lt;string&gt;${</span><span style="color: #00E8C6;">DISPLAY_NAME</span><span style="color: #96E072;">}&lt;/string&gt;</span></span>
+<span class="giallo-l"><span style="color: #96E072;">    &lt;key&gt;CFBundleName&lt;/key&gt;</span></span>
+<span class="giallo-l"><span style="color: #96E072;">    &lt;string&gt;${</span><span style="color: #00E8C6;">BUNDLE_NAME</span><span style="color: #96E072;">}&lt;/string&gt;</span></span>
+<span class="giallo-l"><span style="color: #96E072;">    &lt;key&gt;CFBundleExecutable&lt;/key&gt;</span></span>
+<span class="giallo-l"><span style="color: #96E072;">    &lt;string&gt;${</span><span style="color: #00E8C6;">EXECUTABLE_NAME</span><span style="color: #96E072;">}&lt;/string&gt;</span></span>
+<span class="giallo-l"><span style="color: #96E072;">    &lt;key&gt;CFBundleVersion&lt;/key&gt;</span></span>
+<span class="giallo-l"><span style="color: #96E072;">    &lt;string&gt;0.0.1&lt;/string&gt;</span></span>
+<span class="giallo-l"><span style="color: #96E072;">    &lt;key&gt;CFBundleShortVersionString&lt;/key&gt;</span></span>
+<span class="giallo-l"><span style="color: #96E072;">    &lt;string&gt;0.0.1&lt;/string&gt;</span></span>
+<span class="giallo-l"><span style="color: #96E072;">    &lt;key&gt;CFBundleDevelopmentRegion&lt;/key&gt;</span></span>
+<span class="giallo-l"><span style="color: #96E072;">    &lt;string&gt;en_US&lt;/string&gt;</span></span>
+<span class="giallo-l"><span style="color: #96E072;">    &lt;key&gt;UILaunchStoryboardName&lt;/key&gt;</span></span>
+<span class="giallo-l"><span style="color: #96E072;">    &lt;string&gt;&lt;/string&gt;</span></span>
+<span class="giallo-l"><span style="color: #96E072;">    &lt;key&gt;CFBundleIconFiles&lt;/key&gt;</span></span>
+<span class="giallo-l"><span style="color: #96E072;">    &lt;array&gt;</span></span>
+<span class="giallo-l"><span style="color: #96E072;">    &lt;/array&gt;</span></span>
+<span class="giallo-l"><span style="color: #96E072;">    &lt;key&gt;LSRequiresIPhoneOS&lt;/key&gt;</span></span>
+<span class="giallo-l"><span style="color: #96E072;">    &lt;true/&gt;</span></span>
+<span class="giallo-l"><span style="color: #96E072;">    &lt;/dict&gt;</span></span>
+<span class="giallo-l"><span style="color: #96E072;">&lt;/plist&gt;&quot;</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #FFE66D;">rm</span><span style="color: #EE5D43;"> -rf</span><span style="color: #96E072;"> &quot;${</span><span style="color: #00E8C6;">BUNDLE_PATH</span><span style="color: #96E072;">}&quot;</span><span style="color: #EE5D43;"> 2&gt;</span><span style="color: #96E072;"> /dev/null</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">mkdir</span><span style="color: #EE5D43;"> -p</span><span> ${</span><span style="color: #00E8C6;">BUNDLE_PATH</span><span>}</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #FFE66D;">echo</span><span style="color: #00E8C6;"> $PLIST</span><span style="color: #EE5D43;"> &gt;</span><span> ${</span><span style="color: #00E8C6;">BUNDLE_PATH</span><span>}</span><span style="color: #96E072;">/Info.plist</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">cp</span><span> ${</span><span style="color: #00E8C6;">EXECUTABLE</span><span>} ${</span><span style="color: #00E8C6;">BUNDLE_PATH</span><span>}</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #A0A1A7CC;"># Some simctl helper functions</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">ios_runtime</span><span>() {</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">    xcrun</span><span style="color: #96E072;"> simctl list</span><span style="color: #EE5D43;"> -j</span><span style="color: #96E072;"> runtimes ios</span><span style="color: #EE5D43;"> | \</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">        jq</span><span style="color: #EE5D43;"> -r</span><span style="color: #96E072;"> &#39;.[] | sort_by(.identifier)[0].identifier&#39;</span></span>
+<span class="giallo-l"><span>}</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">ios_devices</span><span>() {</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">    xcrun</span><span style="color: #96E072;"> simctl list</span><span style="color: #EE5D43;"> -j</span><span style="color: #96E072;"> devices ios</span><span style="color: #EE5D43;"> | \</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">        jq</span><span style="color: #96E072;"> &quot;.devices.</span><span style="color: #EE5D43;">\&quot;</span><span style="color: #96E072;">$(</span><span style="color: #FFE66D;">ios_runtime</span><span style="color: #96E072;">)</span><span style="color: #EE5D43;">\&quot;</span><span style="color: #96E072;">&quot;</span><span style="color: #EE5D43;"> |</span><span style="color: #FFE66D;"> jq</span><span style="color: #96E072;"> &#39;sort_by(.deviceTypeIdentifier)&#39;</span></span>
+<span class="giallo-l"><span>}</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #FFE66D;">ios_devices_booted</span><span>() {</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">    ios_devices</span><span style="color: #EE5D43;"> |</span><span style="color: #FFE66D;"> jq</span><span style="color: #96E072;"> &#39;[.[] | select(.state == &quot;Booted&quot;)]&#39;</span></span>
+<span class="giallo-l"><span>}</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #FFE66D;">ios_devices_shutdown</span><span>() {</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">    ios_devices</span><span style="color: #EE5D43;"> |</span><span style="color: #FFE66D;"> jq</span><span style="color: #96E072;"> &#39;[.[] | select(.state == &quot;Shutdown&quot;)]&#39;</span></span>
+<span class="giallo-l"><span>}</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #FFE66D;">ios_devices_get_id</span><span>() {</span></span>
+<span class="giallo-l"><span style="color: #00E8C6;">    booted</span><span style="color: #EE5D43;">=</span><span>$(</span><span style="color: #FFE66D;">ios_devices_booted</span><span>)</span></span>
+<span class="giallo-l"><span style="color: #C74DED;">    if</span><span> [</span><span style="color: #96E072;"> &quot;</span><span style="color: #00E8C6;">$booted</span><span style="color: #96E072;">&quot;</span><span style="color: #EE5D43;"> !=</span><span style="color: #96E072;"> &quot;[]&quot;</span><span> ];</span><span style="color: #C74DED;"> then</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">        echo</span><span style="color: #00E8C6;"> $booted</span><span style="color: #EE5D43;"> |</span><span style="color: #FFE66D;"> jq</span><span style="color: #EE5D43;"> -r</span><span style="color: #96E072;"> &#39;.[0].udid&#39;</span></span>
+<span class="giallo-l"><span style="color: #C74DED;">    else</span></span>
+<span class="giallo-l"><span style="color: #00E8C6;">        device_id</span><span style="color: #EE5D43;">=</span><span>$(</span><span style="color: #FFE66D;">ios_devices_shutdown</span><span style="color: #EE5D43;"> |</span><span style="color: #FFE66D;"> jq</span><span style="color: #EE5D43;"> -r</span><span style="color: #96E072;"> &#39;.[0].udid&#39;</span><span>)</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">        xcrun</span><span style="color: #96E072;"> simctl boot</span><span style="color: #00E8C6;"> $device_id</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">        echo</span><span style="color: #00E8C6;"> $device_id</span></span>
+<span class="giallo-l"><span style="color: #C74DED;">    fi</span></span>
+<span class="giallo-l"><span>}</span></span>
+<span class="giallo-l"><span style="color: #00E8C6;">DEVICE_ID</span><span style="color: #EE5D43;">=</span><span>$(</span><span style="color: #FFE66D;">ios_devices_get_id</span><span>)</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #A0A1A7CC;"># Install/reinstall the app, Start the app in the iOS simulator but wait for</span></span>
+<span class="giallo-l"><span style="color: #A0A1A7CC;"># the debugger to attach</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">xcrun</span><span style="color: #96E072;"> simctl uninstall</span><span> ${</span><span style="color: #00E8C6;">DEVICE_ID</span><span>} ${</span><span style="color: #00E8C6;">IDENTIFIER</span><span>}</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">xcrun</span><span style="color: #96E072;"> simctl install</span><span> ${</span><span style="color: #00E8C6;">DEVICE_ID</span><span>} ${</span><span style="color: #00E8C6;">BUNDLE_PATH</span><span>}</span></span>
+<span class="giallo-l"><span style="color: #00E8C6;">INSTALLED_PATH</span><span style="color: #EE5D43;">=</span><span>$(</span><span style="color: #FFE66D;">xcrun</span><span style="color: #96E072;"> simctl get_app_container</span><span> ${</span><span style="color: #00E8C6;">DEVICE_ID</span><span>} ${</span><span style="color: #00E8C6;">IDENTIFIER</span><span>})</span></span>
+<span class="giallo-l"><span style="color: #00E8C6;">APP_STDOUT</span><span style="color: #EE5D43;">=</span><span>${</span><span style="color: #00E8C6;">INSTALLED_PATH</span><span>}</span><span style="color: #96E072;">/stdout</span></span>
+<span class="giallo-l"><span style="color: #00E8C6;">APP_STDERR</span><span style="color: #EE5D43;">=</span><span>${</span><span style="color: #00E8C6;">INSTALLED_PATH</span><span>}</span><span style="color: #96E072;">/stderr</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #00E8C6;">APP_PID</span><span style="color: #EE5D43;">=</span><span>$(</span><span style="color: #EE5D43;">\</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">    xcrun</span><span style="color: #96E072;"> simctl launch</span><span style="color: #EE5D43;"> -w \</span></span>
+<span class="giallo-l"><span style="color: #EE5D43;">    --stdout=${</span><span style="color: #00E8C6;">APP_STDOUT</span><span style="color: #EE5D43;">} \</span></span>
+<span class="giallo-l"><span style="color: #EE5D43;">    --stderr=${</span><span style="color: #00E8C6;">APP_STDERR</span><span style="color: #EE5D43;">} \</span></span>
+<span class="giallo-l"><span style="color: #EE5D43;">    --terminate-running-process</span><span> ${</span><span style="color: #00E8C6;">DEVICE_ID</span><span>} ${</span><span style="color: #00E8C6;">IDENTIFIER</span><span>} ${</span><span style="color: #00E8C6;">ARGS</span><span>}</span><span style="color: #EE5D43;"> \</span></span>
+<span class="giallo-l"><span style="color: #EE5D43;">    |</span><span style="color: #FFE66D;"> awk</span><span style="color: #EE5D43;"> -F:</span><span style="color: #96E072;"> &#39;{print $2}&#39;</span><span>)</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #A0A1A7CC;"># Attach to the app using lldb.</span></span>
+<span class="giallo-l"><span style="color: #00E8C6;">LLDB_SCRIPT_FILE</span><span style="color: #EE5D43;">=</span><span>$(</span><span style="color: #FFE66D;">mktemp</span><span style="color: #96E072;"> /tmp/lldb_script.XXXXX</span><span>)</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">echo</span><span style="color: #96E072;"> &quot;attach ${</span><span style="color: #00E8C6;">APP_PID</span><span style="color: #96E072;">}&quot;</span><span style="color: #EE5D43;"> &gt;&gt;</span><span> ${</span><span style="color: #00E8C6;">LLDB_SCRIPT_FILE</span><span>}</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">echo</span><span style="color: #96E072;"> &quot;continue&quot;</span><span style="color: #EE5D43;"> &gt;&gt;</span><span> ${</span><span style="color: #00E8C6;">LLDB_SCRIPT_FILE</span><span>}</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">echo</span><span style="color: #96E072;"> &quot;quit&quot;</span><span style="color: #EE5D43;"> &gt;&gt;</span><span> ${</span><span style="color: #00E8C6;">LLDB_SCRIPT_FILE</span><span>}</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #00E8C6;">LLDB_OUT_FILE</span><span style="color: #EE5D43;">=</span><span>$(</span><span style="color: #FFE66D;">mktemp</span><span style="color: #96E072;"> /tmp/lldb_script.XXXXX</span><span>)</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">lldb</span><span style="color: #EE5D43;"> -s</span><span> ${</span><span style="color: #00E8C6;">LLDB_SCRIPT_FILE</span><span>}</span><span style="color: #EE5D43;"> &gt;</span><span> ${</span><span style="color: #00E8C6;">LLDB_OUT_FILE</span><span>}</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #A0A1A7CC;"># This is the stdout LLDB:</span></span>
+<span class="giallo-l"><span style="color: #A0A1A7CC;">#</span></span>
+<span class="giallo-l"><span style="color: #A0A1A7CC;"># (lldb) command source -s 0 &#39;/tmp/lldb.xijJI&#39;</span></span>
+<span class="giallo-l"><span style="color: #A0A1A7CC;"># Executing commands in &#39;/tmp/lldb.xijJI&#39;.</span></span>
+<span class="giallo-l"><span style="color: #A0A1A7CC;"># (lldb) attach  89772</span></span>
+<span class="giallo-l"><span style="color: #A0A1A7CC;"># Process 89772 stopped</span></span>
+<span class="giallo-l"><span style="color: #A0A1A7CC;"># * thread #1, stop reason = signal SIGSTOP</span></span>
+<span class="giallo-l"><span style="color: #A0A1A7CC;">#     frame #0: 0x0000000102b00a40 dyld`_dyld_start</span></span>
+<span class="giallo-l"><span style="color: #A0A1A7CC;"># dyld`:</span></span>
+<span class="giallo-l"><span style="color: #A0A1A7CC;"># -&gt;  0x102b00a40 &lt;+0&gt;:  mov    x0, sp</span></span>
+<span class="giallo-l"><span style="color: #A0A1A7CC;">#     0x102b00a44 &lt;+4&gt;:  and    sp, x0, #0xfffffffffffffff0</span></span>
+<span class="giallo-l"><span style="color: #A0A1A7CC;">#     0x102b00a48 &lt;+8&gt;:  mov    x29, #0x0</span></span>
+<span class="giallo-l"><span style="color: #A0A1A7CC;">#     0x102b00a4c &lt;+12&gt;: mov    x30, #0x0</span></span>
+<span class="giallo-l"><span style="color: #A0A1A7CC;"># Target 0: (test_runner-8652616abdef98d9) stopped.</span></span>
+<span class="giallo-l"><span style="color: #A0A1A7CC;"># Executable module set to &quot;THE PATH TO THE IOS BUNDLED APP IN THE APP&quot;.</span></span>
+<span class="giallo-l"><span style="color: #A0A1A7CC;"># Architecture set to: arm64e-apple-ios-simulator.</span></span>
+<span class="giallo-l"><span style="color: #A0A1A7CC;"># (lldb) continue</span></span>
+<span class="giallo-l"><span style="color: #A0A1A7CC;"># Process 89772 resuming</span></span>
+<span class="giallo-l"><span style="color: #A0A1A7CC;"># Process 89772 exited with status = 0 (0x00000000)</span></span>
+<span class="giallo-l"><span style="color: #A0A1A7CC;"># (lldb) quit</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #A0A1A7CC;"># Parse the output of lldb to retrieve the status code.</span></span>
+<span class="giallo-l"><span style="color: #00E8C6;">STATUS_CODE</span><span style="color: #EE5D43;">=</span><span>$(</span><span style="color: #EE5D43;">\</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">    cat</span><span> ${</span><span style="color: #00E8C6;">LLDB_OUT_FILE</span><span>}</span><span style="color: #EE5D43;"> | \</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">    grep</span><span style="color: #96E072;"> &quot;Process \d\+ exited with status = \d\+&quot;</span><span style="color: #EE5D43;"> | \</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">    grep</span><span> ${</span><span style="color: #00E8C6;">APP_PID</span><span>}</span><span style="color: #EE5D43;"> | \</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">    grep</span><span style="color: #EE5D43;"> -o</span><span style="color: #96E072;"> &quot;= \d\+&quot;</span><span style="color: #EE5D43;"> | \</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">    sed</span><span style="color: #96E072;"> &#39;s/= //g&#39;</span><span style="color: #EE5D43;">\</span></span>
+<span class="giallo-l"><span>)</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">cat</span><span> ${</span><span style="color: #00E8C6;">APP_STDOUT</span><span>}</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">cat</span><span> ${</span><span style="color: #00E8C6;">APP_STDERR</span><span>}</span><span style="color: #EE5D43;"> &gt;&amp;2</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #FFE66D;">exit</span><span> ${</span><span style="color: #00E8C6;">STATUS_CODE</span><span>}</span></span></code></pre><h1 id="usage">Usage<a class="zola-anchor" href="#usage" aria-label="Anchor link for: usage">§</a>
+</h1>
+<p>With a simple rust <code>main.rs</code> or <code>lib.rs</code>:</p>
+<pre class="giallo" style="color: #D5CED9; background-color: #23262E;"><code data-lang="rust"><span class="giallo-l"><span style="color: #C74DED;">fn</span><span style="color: #FFE66D;"> main</span><span>() {</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">    println!</span><span>(</span><span style="color: #96E072;">&quot;Hello world args - </span><span style="color: #F92672;">{</span><span style="color: #96E072;">:?</span><span style="color: #F92672;">}</span><span style="color: #96E072;">&quot;</span><span>, std</span><span style="color: #EE5D43;">::</span><span>env</span><span style="color: #EE5D43;">::</span><span style="color: #FFE66D;">args</span><span>());</span></span>
+<span class="giallo-l"><span style="color: #C74DED;">    let</span><span style="color: #00E8C6;"> first</span><span style="color: #EE5D43;"> =</span><span style="color: #F39C12;"> 2</span><span>;</span></span>
+<span class="giallo-l"><span style="color: #C74DED;">    let</span><span style="color: #00E8C6;"> second</span><span style="color: #EE5D43;"> =</span><span style="color: #F39C12;"> 3</span><span>;</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">    println!</span><span>(</span><span style="color: #96E072;">&quot;add </span><span style="color: #F92672;">{}</span><span style="color: #96E072;"> + </span><span style="color: #F92672;">{}</span><span style="color: #96E072;"> = </span><span style="color: #F92672;">{}</span><span style="color: #96E072;">&quot;</span><span>,</span><span style="color: #00E8C6;"> first</span><span>,</span><span style="color: #00E8C6;"> second</span><span>,</span><span style="color: #FFE66D;"> add</span><span>(</span><span style="color: #00E8C6;">first</span><span>,</span><span style="color: #00E8C6;"> second</span><span>));</span></span>
+<span class="giallo-l"><span>}</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #C74DED;">pub fn</span><span style="color: #FFE66D;"> add</span><span>(</span><span style="color: #00E8C6;">left</span><span style="color: #EE5D43;">:</span><span style="color: #FFE66D;"> usize</span><span>,</span><span style="color: #00E8C6;"> right</span><span style="color: #EE5D43;">:</span><span style="color: #FFE66D;"> usize</span><span>)</span><span style="color: #EE5D43;"> -&gt;</span><span style="color: #FFE66D;"> usize</span><span> {</span></span>
+<span class="giallo-l"><span style="color: #00E8C6;">    left</span><span style="color: #EE5D43;"> +</span><span style="color: #00E8C6;"> right</span></span>
+<span class="giallo-l"><span>}</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>#[cfg(test)]</span></span>
+<span class="giallo-l"><span style="color: #C74DED;">mod</span><span> tests {</span></span>
+<span class="giallo-l"><span style="color: #C74DED;">    use</span><span style="color: #00E8C6;"> super</span><span style="color: #EE5D43;">::*</span><span>;</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>    #[test]</span></span>
+<span class="giallo-l"><span style="color: #C74DED;">    fn</span><span style="color: #FFE66D;"> this_test_passes</span><span>() {</span></span>
+<span class="giallo-l"><span style="color: #C74DED;">        let</span><span style="color: #00E8C6;"> result</span><span style="color: #EE5D43;"> =</span><span style="color: #FFE66D;"> add</span><span>(</span><span style="color: #F39C12;">2</span><span>,</span><span style="color: #F39C12;"> 2</span><span>);</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">        assert_eq!</span><span>(</span><span style="color: #00E8C6;">result</span><span>,</span><span style="color: #F39C12;"> 4</span><span>);</span></span>
+<span class="giallo-l"><span>    }</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>    #[test]</span></span>
+<span class="giallo-l"><span style="color: #C74DED;">    fn</span><span style="color: #FFE66D;"> this_test_fails</span><span>() {</span></span>
+<span class="giallo-l"><span style="color: #C74DED;">        let</span><span style="color: #00E8C6;"> result</span><span style="color: #EE5D43;"> =</span><span style="color: #FFE66D;"> add</span><span>(</span><span style="color: #F39C12;">2</span><span>,</span><span style="color: #F39C12;"> 2</span><span>);</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">        assert_eq!</span><span>(</span><span style="color: #00E8C6;">result</span><span>,</span><span style="color: #F39C12;"> 5</span><span>);</span></span>
+<span class="giallo-l"><span>    }</span></span>
+<span class="giallo-l"><span>}</span></span></code></pre>
+<p>Put the <code>ios-sim-runner.sh</code> in your path or local to the project and the
+<code>.cargo/config.toml</code> in desired cargo configuration and then you'll be able to
+run:</p>
+<p><code>cargo test --target x86_64-apple-ios</code> or <code>cargo test --target aarch64-apple-ios-sim</code> and you'll see something like the following:</p>
+<pre class="giallo" style="color: #D5CED9; background-color: #23262E;"><code data-lang="plain"><span class="giallo-l"><span>    Finished test [unoptimized + debuginfo] target(s) in 0.00s</span></span>
+<span class="giallo-l"><span>     Running unittests src/main.rs (target/aarch64-apple-ios-sim/debug/deps/rust_target_runner_for_ios-21a08454287c0bcd)</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>running 2 tests</span></span>
+<span class="giallo-l"><span>test tests::this_test_passes ... ok</span></span>
+<span class="giallo-l"><span>test tests::this_test_fails ... FAILED</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>failures:</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>---- tests::this_test_fails stdout ----</span></span>
+<span class="giallo-l"><span>thread &#39;tests::this_test_fails&#39; panicked at &#39;assertion failed: `(left == right)`</span></span>
+<span class="giallo-l"><span>  left: `4`,</span></span>
+<span class="giallo-l"><span> right: `5`&#39;, src/main.rs:26:9</span></span>
+<span class="giallo-l"><span>note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>failures:</span></span>
+<span class="giallo-l"><span>    tests::this_test_fails</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>error: test failed, to rerun pass `--bin rust-target-runner-for-ios`</span></span></code></pre>
+<p>One can do <code>cargo test --target aarch64-apple-ios-sim -- this_test_passes</code> or
+<code>cargo run --target aarch64-apple-ios-sim</code></p>
+<h1 id="description">Description<a class="zola-anchor" href="#description" aria-label="Anchor link for: description">§</a>
+</h1>
+<p>Given that this script will certainly break in the future due to changes with
+either <code>simctl</code> or the <code>Info.plist</code> specifications so I'll tell you about the
+sections.</p>
+<h2 id="app-bundle">App Bundle<a class="zola-anchor" href="#app-bundle" aria-label="Anchor link for: app-bundle">§</a>
+</h2>
+<pre class="giallo" style="color: #D5CED9; background-color: #23262E;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #00E8C6;">IDENTIFIER</span><span style="color: #EE5D43;">=</span><span style="color: #96E072;">&quot;com.simlay.net.RustRunner&quot;</span></span>
+<span class="giallo-l"><span style="color: #00E8C6;">DISPLAY_NAME</span><span style="color: #EE5D43;">=</span><span style="color: #96E072;">&quot;RustRunner&quot;</span></span>
+<span class="giallo-l"><span style="color: #00E8C6;">BUNDLE_NAME</span><span style="color: #EE5D43;">=</span><span>${</span><span style="color: #00E8C6;">DISPLAY_NAME</span><span>}</span><span style="color: #96E072;">.App</span></span>
+<span class="giallo-l"><span style="color: #00E8C6;">EXECUTABLE_NAME</span><span style="color: #EE5D43;">=</span><span>$(</span><span style="color: #FFE66D;">basename</span><span> ${</span><span style="color: #00E8C6;">EXECUTABLE</span><span>})</span></span>
+<span class="giallo-l"><span style="color: #00E8C6;">BUNDLE_PATH</span><span style="color: #EE5D43;">=</span><span>$(</span><span style="color: #FFE66D;">dirname</span><span style="color: #00E8C6;"> $EXECUTABLE</span><span>)</span><span style="color: #96E072;">/</span><span>${</span><span style="color: #00E8C6;">BUNDLE_NAME</span><span>}</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #00E8C6;">PLIST</span><span style="color: #EE5D43;">=</span><span style="color: #96E072;">&quot;&lt;?xml version=</span><span style="color: #EE5D43;">\&quot;</span><span style="color: #96E072;">1.0</span><span style="color: #EE5D43;">\&quot;</span><span style="color: #96E072;"> encoding=</span><span style="color: #EE5D43;">\&quot;</span><span style="color: #96E072;">UTF-8</span><span style="color: #EE5D43;">\&quot;</span><span style="color: #96E072;">?&gt;</span></span>
+<span class="giallo-l"><span style="color: #96E072;">    &lt;!DOCTYPE plist PUBLIC </span><span style="color: #EE5D43;">\&quot;</span><span style="color: #96E072;">-//Apple Computer//DTD PLIST 1.0//EN</span><span style="color: #EE5D43;">\&quot;</span></span>
+<span class="giallo-l"><span style="color: #EE5D43;">    \&quot;</span><span style="color: #96E072;">http://www.apple.com/DTDs/PropertyList-1.0.dtd</span><span style="color: #EE5D43;">\&quot;</span><span style="color: #96E072;">&gt;</span></span>
+<span class="giallo-l"><span style="color: #96E072;">    &lt;plist version=</span><span style="color: #EE5D43;">\&quot;</span><span style="color: #96E072;">1.0</span><span style="color: #EE5D43;">\&quot;</span><span style="color: #96E072;">&gt;</span></span>
+<span class="giallo-l"><span style="color: #96E072;">    &lt;dict&gt;</span></span>
+<span class="giallo-l"><span style="color: #96E072;">    &lt;key&gt;CFBundleIdentifier&lt;/key&gt;</span></span>
+<span class="giallo-l"><span style="color: #96E072;">    &lt;string&gt;${</span><span style="color: #00E8C6;">IDENTIFIER</span><span style="color: #96E072;">}&lt;/string&gt;</span></span>
+<span class="giallo-l"><span style="color: #96E072;">    &lt;key&gt;CFBundleDisplayName&lt;/key&gt;</span></span>
+<span class="giallo-l"><span style="color: #96E072;">    &lt;string&gt;${</span><span style="color: #00E8C6;">DISPLAY_NAME</span><span style="color: #96E072;">}&lt;/string&gt;</span></span>
+<span class="giallo-l"><span style="color: #96E072;">    &lt;key&gt;CFBundleName&lt;/key&gt;</span></span>
+<span class="giallo-l"><span style="color: #96E072;">    &lt;string&gt;${</span><span style="color: #00E8C6;">BUNDLE_NAME</span><span style="color: #96E072;">}&lt;/string&gt;</span></span>
+<span class="giallo-l"><span style="color: #96E072;">    &lt;key&gt;CFBundleExecutable&lt;/key&gt;</span></span>
+<span class="giallo-l"><span style="color: #96E072;">    &lt;string&gt;${</span><span style="color: #00E8C6;">EXECUTABLE_NAME</span><span style="color: #96E072;">}&lt;/string&gt;</span></span>
+<span class="giallo-l"><span style="color: #96E072;">    &lt;key&gt;CFBundleVersion&lt;/key&gt;</span></span>
+<span class="giallo-l"><span style="color: #96E072;">    &lt;string&gt;0.0.1&lt;/string&gt;</span></span>
+<span class="giallo-l"><span style="color: #96E072;">    &lt;key&gt;CFBundleShortVersionString&lt;/key&gt;</span></span>
+<span class="giallo-l"><span style="color: #96E072;">    &lt;string&gt;0.0.1&lt;/string&gt;</span></span>
+<span class="giallo-l"><span style="color: #96E072;">    &lt;key&gt;CFBundleDevelopmentRegion&lt;/key&gt;</span></span>
+<span class="giallo-l"><span style="color: #96E072;">    &lt;string&gt;en_US&lt;/string&gt;</span></span>
+<span class="giallo-l"><span style="color: #96E072;">    &lt;key&gt;UILaunchStoryboardName&lt;/key&gt;</span></span>
+<span class="giallo-l"><span style="color: #96E072;">    &lt;string&gt;&lt;/string&gt;</span></span>
+<span class="giallo-l"><span style="color: #96E072;">    &lt;key&gt;CFBundleIconFiles&lt;/key&gt;</span></span>
+<span class="giallo-l"><span style="color: #96E072;">    &lt;array&gt;</span></span>
+<span class="giallo-l"><span style="color: #96E072;">    &lt;/array&gt;</span></span>
+<span class="giallo-l"><span style="color: #96E072;">    &lt;key&gt;LSRequiresIPhoneOS&lt;/key&gt;</span></span>
+<span class="giallo-l"><span style="color: #96E072;">    &lt;true/&gt;</span></span>
+<span class="giallo-l"><span style="color: #96E072;">    &lt;/dict&gt;</span></span>
+<span class="giallo-l"><span style="color: #96E072;">&lt;/plist&gt;&quot;</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #FFE66D;">rm</span><span style="color: #EE5D43;"> -rf</span><span style="color: #96E072;"> &quot;${</span><span style="color: #00E8C6;">BUNDLE_PATH</span><span style="color: #96E072;">}&quot;</span><span style="color: #EE5D43;"> 2&gt;</span><span style="color: #96E072;"> /dev/null</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">mkdir</span><span style="color: #EE5D43;"> -p</span><span> ${</span><span style="color: #00E8C6;">BUNDLE_PATH</span><span>}</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #FFE66D;">echo</span><span style="color: #00E8C6;"> $PLIST</span><span style="color: #EE5D43;"> &gt;</span><span> ${</span><span style="color: #00E8C6;">BUNDLE_PATH</span><span>}</span><span style="color: #96E072;">/Info.plist</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">cp</span><span> ${</span><span style="color: #00E8C6;">EXECUTABLE</span><span>} ${</span><span style="color: #00E8C6;">BUNDLE_PATH</span><span>}</span></span></code></pre>
+<p>This is the section to bundle the executable that's the first argument into an
+iOS simulator app.</p>
+<h2 id="device-id">Device ID<a class="zola-anchor" href="#device-id" aria-label="Anchor link for: device-id">§</a>
+</h2>
+<pre class="giallo" style="color: #D5CED9; background-color: #23262E;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FFE66D;">ios_runtime</span><span>() {</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">    xcrun</span><span style="color: #96E072;"> simctl list</span><span style="color: #EE5D43;"> -j</span><span style="color: #96E072;"> runtimes ios</span><span style="color: #EE5D43;"> | \</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">        jq</span><span style="color: #EE5D43;"> -r</span><span style="color: #96E072;"> &#39;.[] | sort_by(.identifier)[0].identifier&#39;</span></span>
+<span class="giallo-l"><span>}</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">ios_devices</span><span>() {</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">    xcrun</span><span style="color: #96E072;"> simctl list</span><span style="color: #EE5D43;"> -j</span><span style="color: #96E072;"> devices ios</span><span style="color: #EE5D43;"> | \</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">        jq</span><span style="color: #96E072;"> &quot;.devices.</span><span style="color: #EE5D43;">\&quot;</span><span style="color: #96E072;">$(</span><span style="color: #FFE66D;">ios_runtime</span><span style="color: #96E072;">)</span><span style="color: #EE5D43;">\&quot;</span><span style="color: #96E072;">&quot;</span><span style="color: #EE5D43;"> |</span><span style="color: #FFE66D;"> jq</span><span style="color: #96E072;"> &#39;sort_by(.deviceTypeIdentifier)&#39;</span></span>
+<span class="giallo-l"><span>}</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #FFE66D;">ios_devices_booted</span><span>() {</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">    ios_devices</span><span style="color: #EE5D43;"> |</span><span style="color: #FFE66D;"> jq</span><span style="color: #96E072;"> &#39;[.[] | select(.state == &quot;Booted&quot;)]&#39;</span></span>
+<span class="giallo-l"><span>}</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #FFE66D;">ios_devices_shutdown</span><span>() {</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">    ios_devices</span><span style="color: #EE5D43;"> |</span><span style="color: #FFE66D;"> jq</span><span style="color: #96E072;"> &#39;[.[] | select(.state == &quot;Shutdown&quot;)]&#39;</span></span>
+<span class="giallo-l"><span>}</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #FFE66D;">ios_devices_get_id</span><span>() {</span></span>
+<span class="giallo-l"><span style="color: #00E8C6;">    booted</span><span style="color: #EE5D43;">=</span><span>$(</span><span style="color: #FFE66D;">ios_devices_booted</span><span>)</span></span>
+<span class="giallo-l"><span style="color: #C74DED;">    if</span><span> [</span><span style="color: #96E072;"> &quot;</span><span style="color: #00E8C6;">$booted</span><span style="color: #96E072;">&quot;</span><span style="color: #EE5D43;"> !=</span><span style="color: #96E072;"> &quot;[]&quot;</span><span> ];</span><span style="color: #C74DED;"> then</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">        echo</span><span style="color: #00E8C6;"> $booted</span><span style="color: #EE5D43;"> |</span><span style="color: #FFE66D;"> jq</span><span style="color: #EE5D43;"> -r</span><span style="color: #96E072;"> &#39;.[0].udid&#39;</span></span>
+<span class="giallo-l"><span style="color: #C74DED;">    else</span></span>
+<span class="giallo-l"><span style="color: #00E8C6;">        device_id</span><span style="color: #EE5D43;">=</span><span>$(</span><span style="color: #FFE66D;">ios_devices_shutdown</span><span style="color: #EE5D43;"> |</span><span style="color: #FFE66D;"> jq</span><span style="color: #EE5D43;"> -r</span><span style="color: #96E072;"> &#39;.[0].udid&#39;</span><span>)</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">        xcrun</span><span style="color: #96E072;"> simctl boot</span><span style="color: #00E8C6;"> $device_id</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">        echo</span><span style="color: #00E8C6;"> $device_id</span></span>
+<span class="giallo-l"><span style="color: #C74DED;">    fi</span></span>
+<span class="giallo-l"><span>}</span></span>
+<span class="giallo-l"><span style="color: #00E8C6;">DEVICE_ID</span><span style="color: #EE5D43;">=</span><span>$(</span><span style="color: #FFE66D;">ios_devices_get_id</span><span>)</span></span></code></pre>
+<p>This whole section is about getting the <code>DEVICE_ID</code> as this is needed for the
+<code>get_app_container</code>. Otherwise, one can just use <code>booted</code> for most cases of
+device id.</p>
+<p>This will start an iOS simulator if one is not started.</p>
+<h2 id="start-the-app">Start the app<a class="zola-anchor" href="#start-the-app" aria-label="Anchor link for: start-the-app">§</a>
+</h2>
+<pre class="giallo" style="color: #D5CED9; background-color: #23262E;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FFE66D;">xcrun</span><span style="color: #96E072;"> simctl uninstall</span><span> ${</span><span style="color: #00E8C6;">DEVICE_ID</span><span>} ${</span><span style="color: #00E8C6;">IDENTIFIER</span><span>}</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">xcrun</span><span style="color: #96E072;"> simctl install</span><span> ${</span><span style="color: #00E8C6;">DEVICE_ID</span><span>} ${</span><span style="color: #00E8C6;">BUNDLE_PATH</span><span>}</span></span>
+<span class="giallo-l"><span style="color: #00E8C6;">INSTALLED_PATH</span><span style="color: #EE5D43;">=</span><span>$(</span><span style="color: #FFE66D;">xcrun</span><span style="color: #96E072;"> simctl get_app_container</span><span> ${</span><span style="color: #00E8C6;">DEVICE_ID</span><span>} ${</span><span style="color: #00E8C6;">IDENTIFIER</span><span>})</span></span>
+<span class="giallo-l"><span style="color: #00E8C6;">APP_STDOUT</span><span style="color: #EE5D43;">=</span><span>${</span><span style="color: #00E8C6;">INSTALLED_PATH</span><span>}</span><span style="color: #96E072;">/stdout</span></span>
+<span class="giallo-l"><span style="color: #00E8C6;">APP_STDERR</span><span style="color: #EE5D43;">=</span><span>${</span><span style="color: #00E8C6;">INSTALLED_PATH</span><span>}</span><span style="color: #96E072;">/stderr</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #00E8C6;">APP_PID</span><span style="color: #EE5D43;">=</span><span>$(</span><span style="color: #EE5D43;">\</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">    xcrun</span><span style="color: #96E072;"> simctl launch</span><span style="color: #EE5D43;"> -w \</span></span>
+<span class="giallo-l"><span style="color: #EE5D43;">    --stdout=${</span><span style="color: #00E8C6;">APP_STDOUT</span><span style="color: #EE5D43;">} \</span></span>
+<span class="giallo-l"><span style="color: #EE5D43;">    --stderr=${</span><span style="color: #00E8C6;">APP_STDERR</span><span style="color: #EE5D43;">} \</span></span>
+<span class="giallo-l"><span style="color: #EE5D43;">    --terminate-running-process</span><span> ${</span><span style="color: #00E8C6;">DEVICE_ID</span><span>} ${</span><span style="color: #00E8C6;">IDENTIFIER</span><span>} ${</span><span style="color: #00E8C6;">ARGS</span><span>}</span><span style="color: #EE5D43;"> \</span></span>
+<span class="giallo-l"><span style="color: #EE5D43;">    |</span><span style="color: #FFE66D;"> awk</span><span style="color: #EE5D43;"> -F:</span><span style="color: #96E072;"> &#39;{print $2}&#39;</span><span>)</span></span></code></pre>
+<p>Here we install the app bundle and start the app in waiting/debugger mode as
+we'll later use the <code>PID</code> to retrieve the exit status of the app and propagate
+the status code up.</p>
+<h2 id="lldb">LLDB<a class="zola-anchor" href="#lldb" aria-label="Anchor link for: lldb">§</a>
+</h2>
+<pre class="giallo" style="color: #D5CED9; background-color: #23262E;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #00E8C6;">LLDB_SCRIPT_FILE</span><span style="color: #EE5D43;">=</span><span>$(</span><span style="color: #FFE66D;">mktemp</span><span style="color: #96E072;"> /tmp/lldb_script.XXXXX</span><span>)</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">echo</span><span style="color: #96E072;"> &quot;attach ${</span><span style="color: #00E8C6;">APP_PID</span><span style="color: #96E072;">}&quot;</span><span style="color: #EE5D43;"> &gt;&gt;</span><span> ${</span><span style="color: #00E8C6;">LLDB_SCRIPT_FILE</span><span>}</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">echo</span><span style="color: #96E072;"> &quot;continue&quot;</span><span style="color: #EE5D43;"> &gt;&gt;</span><span> ${</span><span style="color: #00E8C6;">LLDB_SCRIPT_FILE</span><span>}</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">echo</span><span style="color: #96E072;"> &quot;quit&quot;</span><span style="color: #EE5D43;"> &gt;&gt;</span><span> ${</span><span style="color: #00E8C6;">LLDB_SCRIPT_FILE</span><span>}</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #00E8C6;">LLDB_OUT_FILE</span><span style="color: #EE5D43;">=</span><span>$(</span><span style="color: #FFE66D;">mktemp</span><span style="color: #96E072;"> /tmp/lldb_script.XXXXX</span><span>)</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">lldb</span><span style="color: #EE5D43;"> -s</span><span> ${</span><span style="color: #00E8C6;">LLDB_SCRIPT_FILE</span><span>}</span><span style="color: #EE5D43;"> &gt;</span><span> ${</span><span style="color: #00E8C6;">LLDB_OUT_FILE</span><span>}</span></span></code></pre><pre class="giallo" style="color: #D5CED9; background-color: #23262E;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #A0A1A7CC;"># This is the stdout LLDB:</span></span>
+<span class="giallo-l"><span style="color: #A0A1A7CC;">#</span></span>
+<span class="giallo-l"><span style="color: #A0A1A7CC;"># (lldb) command source -s 0 &#39;/tmp/lldb.xijJI&#39;</span></span>
+<span class="giallo-l"><span style="color: #A0A1A7CC;"># Executing commands in &#39;/tmp/lldb.xijJI&#39;.</span></span>
+<span class="giallo-l"><span style="color: #A0A1A7CC;"># (lldb) attach  89772</span></span>
+<span class="giallo-l"><span style="color: #A0A1A7CC;"># Process 89772 stopped</span></span>
+<span class="giallo-l"><span style="color: #A0A1A7CC;"># * thread #1, stop reason = signal SIGSTOP</span></span>
+<span class="giallo-l"><span style="color: #A0A1A7CC;">#     frame #0: 0x0000000102b00a40 dyld`_dyld_start</span></span>
+<span class="giallo-l"><span style="color: #A0A1A7CC;"># dyld`:</span></span>
+<span class="giallo-l"><span style="color: #A0A1A7CC;"># -&gt;  0x102b00a40 &lt;+0&gt;:  mov    x0, sp</span></span>
+<span class="giallo-l"><span style="color: #A0A1A7CC;">#     0x102b00a44 &lt;+4&gt;:  and    sp, x0, #0xfffffffffffffff0</span></span>
+<span class="giallo-l"><span style="color: #A0A1A7CC;">#     0x102b00a48 &lt;+8&gt;:  mov    x29, #0x0</span></span>
+<span class="giallo-l"><span style="color: #A0A1A7CC;">#     0x102b00a4c &lt;+12&gt;: mov    x30, #0x0</span></span>
+<span class="giallo-l"><span style="color: #A0A1A7CC;"># Target 0: (test_runner-8652616abdef98d9) stopped.</span></span>
+<span class="giallo-l"><span style="color: #A0A1A7CC;"># Executable module set to &quot;THE PATH TO THE IOS BUNDLED APP IN THE APP&quot;.</span></span>
+<span class="giallo-l"><span style="color: #A0A1A7CC;"># Architecture set to: arm64e-apple-ios-simulator.</span></span>
+<span class="giallo-l"><span style="color: #A0A1A7CC;"># (lldb) continue</span></span>
+<span class="giallo-l"><span style="color: #A0A1A7CC;"># Process 89772 resuming</span></span>
+<span class="giallo-l"><span style="color: #A0A1A7CC;"># Process 89772 exited with status = 0 (0x00000000)</span></span>
+<span class="giallo-l"><span style="color: #A0A1A7CC;"># (lldb) quit</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #A0A1A7CC;"># Parse the output of lldb to retrieve the status code.</span></span></code></pre><pre class="giallo" style="color: #D5CED9; background-color: #23262E;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #00E8C6;">STATUS_CODE</span><span style="color: #EE5D43;">=</span><span>$(</span><span style="color: #EE5D43;">\</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">    cat</span><span> ${</span><span style="color: #00E8C6;">LLDB_OUT_FILE</span><span>}</span><span style="color: #EE5D43;"> | \</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">    grep</span><span style="color: #96E072;"> &quot;Process \d\+ exited with status = \d\+&quot;</span><span style="color: #EE5D43;"> | \</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">    grep</span><span> ${</span><span style="color: #00E8C6;">APP_PID</span><span>}</span><span style="color: #EE5D43;"> | \</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">    grep</span><span style="color: #EE5D43;"> -o</span><span style="color: #96E072;"> &quot;= \d\+&quot;</span><span style="color: #EE5D43;"> | \</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">    sed</span><span style="color: #96E072;"> &#39;s/= //g&#39;</span><span style="color: #EE5D43;">\</span></span>
+<span class="giallo-l"><span>)</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">cat</span><span> ${</span><span style="color: #00E8C6;">APP_STDOUT</span><span>}</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">cat</span><span> ${</span><span style="color: #00E8C6;">APP_STDERR</span><span>}</span><span style="color: #EE5D43;"> &gt;&amp;2</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #FFE66D;">exit</span><span> ${</span><span style="color: #00E8C6;">STATUS_CODE</span><span>}</span></span></code></pre>
+<p>Here we:</p>
+<ul>
+<li>create a very simple <a rel="external" href="https://lldb.llvm.org/man/lldb.html#cmdoption-lldb-source"><code>lldb</code> script</a></li>
+<li>run said lldb script</li>
+<li>read the <code>stdout</code>, parse it, and retrieve the exit status.</li>
+<li>exit with the status code.</li>
+</ul>
+<h1 id="future-work">Future Work<a class="zola-anchor" href="#future-work" aria-label="Anchor link for: future-work">§</a>
+</h1>
+<p>In the future I'd like to use
+<a rel="external" href="https://github.com/ios-control/ios-deploy"><code>ios-deploy</code></a> to <a rel="external" href="https://stackoverflow.com/a/23827549">deploy/run/test
+over wifi</a>. The hard part about this is
+the requirements and uses of <a rel="external" href="https://developer.apple.com/library/archive/documentation/Security/Conceptual/CodeSigningGuide/Procedures/Procedures.html"><code>codesign</code>ing the
+app</a></p>
+
+
+        
+    
+
+        
+        
+    </article></div>
+    <div class="pagination">
+        <div class="pagination__buttons">
+            </div>
+    </div>
+<footer class="footer">
+                    <div class="footer__inner"><div class="copyright">
+            <span>© 2026 :: Powered by <a href="https://www.getzola.org/">Zola</a></span>
+        </div>
+    <script type="text/javascript" src="https://simlay.net/assets/js/main.js"></script>
+</div>
+                    
+
+                </footer></div>
+        <script data-goatcounter="https://simlay.goatcounter.com/count" async src="//gc.zgo.at/count.js"></script><a rel="me" href="https:&#x2F;&#x2F;hachyderm.io&#x2F;@simlay" /></body>
+</html>
