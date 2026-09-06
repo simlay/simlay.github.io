@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+    <title>Writing iOS XCTests in Rust - Sebastian Imlay</title>
+    
+    
+    <meta http-equiv="content-type" content="text/html; charset=utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1"><meta name="description" content="The home of simlay.net Writing iOS XCTests in Rust Use objc2-xc-ui-test, objc2-xc-test to test and iOS app as well as get code coverage reports."/>
+    <meta property="og:title" content="simlay -&nbsp;Writing iOS XCTests in Rust" />
+    <meta property="og:type" content="website"/><meta property="og:url" content="https:&#x2F;&#x2F;simlay.net&#x2F;posts&#x2F;2026-01-rust-xctesting&#x2F;"/><meta property="og:description" content="Use objc2-xc-ui-test, objc2-xc-test to test and iOS app as well as get code coverage reports."/><meta property="og:image" content="https://simlay.net/simlay.png"/>
+    <link rel="preload" href="https://simlay.net/assets/fonts/FiraCode-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+    <link rel="preload" href="https://simlay.net/assets/fonts/FiraCode-Bold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+
+    <link rel="stylesheet" href="https://simlay.net/style.css?h=97e262212a0704163528">
+    <link rel="stylesheet" href="https://simlay.net/color/blue.css?h=43198b832df0f2b5f2cf">
+<!-- Google Analytics -->
+        <script async src="https://www.googletagmanager.com/gtag/js?id=UA-44653605-1"></script>
+        <script>
+            window.dataLayer = window.dataLayer || [];
+            function gtag(){dataLayer.push(arguments);}
+            gtag('js', new Date());
+            gtag('config', 'UA-44653605-1');
+        </script>
+    </head>
+    <body>
+        <div class="container">
+<header class="header">
+    <div class="header__inner">
+        <div class="header__logo">
+            <a href="https:&#x2F;&#x2F;simlay.net">
+    <div class="logo">
+        simlay
+    </div>
+</a>
+        </div>
+        <div class="menu-trigger">menu</div>
+    </div>
+    
+    <nav class="menu">
+        <ul class="menu__inner menu__inner--desktop">
+            
+            
+        <li>
+            <a href="
+    
+        https://simlay.net/me
+    
+">me</a>
+        </li></ul>
+
+        <ul class="menu__inner menu__inner--mobile">
+            
+        <li>
+            <a href="
+    
+        https://simlay.net/me
+    
+">me</a>
+        </li>
+        </ul>
+    </nav>
+
+    </header>
+<div class="content"><article class="post">
+        <header>
+            <h1 class="post-title">
+                <a href="https:&#x2F;&#x2F;simlay.net&#x2F;posts&#x2F;2026-01-rust-xctesting&#x2F;">Writing iOS XCTests in Rust</a>
+            </h1>
+            
+    <div class="post-meta">
+        <span class="post-date">2026.01.28
+                </span>
+
+        <span class="post-author"></span>
+
+        
+
+    
+    </div>
+
+            
+    
+</header><h1 id="introduction">Introduction<a class="zola-anchor" href="#introduction" aria-label="Anchor link for: introduction">§</a>
+</h1>
+<p>In this post, I'll briefly show how to bundle a rust binary into an iOS app as
+well as the complexities of bundling a XCTest app written in rust. I can't say
+that this should be used in production. I only figured out how to do this a
+few months ago (~November 2025) so this might be a brittle setup.</p>
+<p>I'll also briefly touch on how to get code coverage reports via the XCTest and
+App itself.</p>
+<p>The code here is available in <a rel="external" href="https://github.com/simlay/simlay.github.io/tree/master/code/2026-01-use-objc2-xc-ui-automation"><code>code</code> subdirectory of this
+repo</a>
+if you want to use it.</p>
+<p>Running the stuff from this post requires:</p>
+<ul>
+<li>xcode installed</li>
+<li>the iphone SDK tooling installed</li>
+<li>rust installed along with the <code>aarch64-apple-ios-sim</code> target</li>
+<li>Starting the <code>iPhone 16e</code> simulator.</li>
+</ul>
+<p>This post is best viewed on desktop.</p>
+<h1 id="background">Background<a class="zola-anchor" href="#background" aria-label="Anchor link for: background">§</a>
+</h1>
+<p>While <code>XCTest</code> has been around since <a rel="external" href="https://developer.apple.com/documentation/xctest">Xcode
+5</a>, <code>XCUIAutomation</code> wasn't
+it's own framework nor in the public framework list until <a rel="external" href="https://developer.apple.com/documentation/xcode-release-notes/xcode-16_3-release-notes#Testing-and-Automation">Xcode
+16.3</a>.
+When it was added as a public API (rather than private), this change enabled
+<a rel="external" href="https://github.com/madsmtm/objc2">objc2</a> to generate bindings for
+<a rel="external" href="https://crates.io/crates/objc2-xc-test"><code>objc2-xc-test</code></a> and
+<a rel="external" href="https://crates.io/crates/objc2-xc-ui-automation"><code>objc2-xc-ui-automation</code></a>.
+These two rust crates call into the Objective-C APIs for <code>XCTest</code> and
+<code>XCUIAutomation</code>.</p>
+<p>I don't believe it's very well documented how an XCTest app is ran. What I can
+say is that it's packaged similar to a regular iOS app but the executable is
+either derived from or is the <code>XCTRunner</code> which I've shown here. I hypothesize
+that this executable looks for things that derive from the Objective-C <code>XCTest</code>
+class. Later in this post you'll see a <code>#[ctor::ctor]</code> around a function that
+just calls <code>let _ = TestCase::class();</code></p>
+<p>This is more or less the architecture. RustApp is the app we're testing
+against and RustUITests is the app doing the testing/automating.</p>
+<pre class="giallo" style="color: #D5CED9; background-color: #23262E;"><code data-lang="plain"><span class="giallo-l"><span>|-----------------|                                         |-----------------|</span></span>
+<span class="giallo-l"><span>|                 |             app.launch()                |                 |</span></span>
+<span class="giallo-l"><span>|  RustUITests    |                 -&gt;                      |     RustApp     |</span></span>
+<span class="giallo-l"><span>|                 |             app.state()                 |                 |</span></span>
+<span class="giallo-l"><span>|-----------------|                                         |-----------------|</span></span></code></pre>
+<p>Then to do an action it's something like:</p>
+<pre class="giallo" style="color: #D5CED9; background-color: #23262E;"><code data-lang="plain"><span class="giallo-l"><span>|-----------------|                                         |-----------------|</span></span>
+<span class="giallo-l"><span>|                 |  let input = app.textFields().element() |     No text     |</span></span>
+<span class="giallo-l"><span>|  RustUITests    |                -&gt;                       |     RustApp     |</span></span>
+<span class="giallo-l"><span>|                 |            input.tap()                  |   Now has text  |</span></span>
+<span class="giallo-l"><span>|-----------------|     input.typeText(foo_ns_string);      |-----------------|</span></span></code></pre>
+<p>In theory, one could be writing these UI Tests against a react-native app rather
+than a Rust <code>objc2-ui-kit</code> app.</p>
+<p>Note: These bindings are generated based on <a rel="external" href="https://github.com/madsmtm/objc2/issues/408">targeting macOS for
+now</a>. <a rel="external" href="https://github.com/madsmtm/objc2/pull/809">Various work arounds for
+some calls have been added</a>. For
+this reason, the examples here are using a <code>[patch.crate-io]</code> for the objc2
+crates. This also enables us to a nicer/not-yet-released <code>declare_class!</code> macro
+from <code>objc2</code></p>
+<h1 id="rust-ios-app-bundling-hacks">Rust iOS app bundling hacks<a class="zola-anchor" href="#rust-ios-app-bundling-hacks" aria-label="Anchor link for: rust-ios-app-bundling-hacks">§</a>
+</h1>
+<p>In my previous post about <a href="/posts/rust-target-runner-for-ios/">using a target runner for
+ios</a>, the bulk of the exercise was about
+just bundling a rust executable into an iOS app. In short, an iOS app is a
+directory suffixed with <code>.app</code>, an <code>Info.plist</code> and a binary.</p>
+<p>The simplest manifest(<code>Info.plist</code>) I've found is:</p>
+<pre class="giallo" style="color: #D5CED9; background-color: #23262E;"><code data-lang="xml"><span class="giallo-l"><span>&lt;?</span><span style="color: #F92672;">xml</span><span style="color: #FFE66D;"> version</span><span>=</span><span style="color: #FFE66D;">&quot;1.0&quot; encoding</span><span>=</span><span style="color: #FFE66D;">&quot;UTF-8&quot;</span><span>?&gt;</span></span>
+<span class="giallo-l"><span>&lt;!</span><span style="color: #C74DED;">DOCTYPE</span><span style="color: #00E8C6;"> plist</span><span> PUBLIC &quot;-//Apple//DTD PLIST 1.0//EN&quot; &quot;http://www.apple.com/DTDs/PropertyList-1.0.dtd&quot;&gt;</span></span>
+<span class="giallo-l"><span>&lt;</span><span style="color: #F92672;">plist</span><span style="color: #FFE66D;"> version</span><span>=</span><span style="color: #FFE66D;">&quot;1.0&quot;</span><span>&gt;</span></span>
+<span class="giallo-l"><span>&lt;</span><span style="color: #F92672;">dict</span><span>&gt;</span></span>
+<span class="giallo-l"><span>	&lt;</span><span style="color: #F92672;">key</span><span>&gt;CFBundleExecutable&lt;/</span><span style="color: #F92672;">key</span><span>&gt;</span></span>
+<span class="giallo-l"><span>	&lt;</span><span style="color: #F92672;">string</span><span>&gt;use-objc2-xc-ui-automation&lt;/</span><span style="color: #F92672;">string</span><span>&gt;</span></span>
+<span class="giallo-l"><span>	&lt;</span><span style="color: #F92672;">key</span><span>&gt;CFBundleIdentifier&lt;/</span><span style="color: #F92672;">key</span><span>&gt;</span></span>
+<span class="giallo-l"><span>	&lt;</span><span style="color: #F92672;">string</span><span>&gt;com.simlay.net.Dinghy&lt;/</span><span style="color: #F92672;">string</span><span>&gt;</span></span>
+<span class="giallo-l"><span>	&lt;</span><span style="color: #F92672;">key</span><span>&gt;CFBundleName&lt;/</span><span style="color: #F92672;">key</span><span>&gt;</span></span>
+<span class="giallo-l"><span>	&lt;</span><span style="color: #F92672;">string</span><span>&gt;RustWrapper&lt;/</span><span style="color: #F92672;">string</span><span>&gt;</span></span>
+<span class="giallo-l"><span>	&lt;</span><span style="color: #F92672;">key</span><span>&gt;CFBundleShortVersionString&lt;/</span><span style="color: #F92672;">key</span><span>&gt;</span></span>
+<span class="giallo-l"><span>	&lt;</span><span style="color: #F92672;">string</span><span>&gt;arm64&lt;/</span><span style="color: #F92672;">string</span><span>&gt;</span></span>
+<span class="giallo-l"><span>	&lt;</span><span style="color: #F92672;">key</span><span>&gt;CFBundleVersion&lt;/</span><span style="color: #F92672;">key</span><span>&gt;</span></span>
+<span class="giallo-l"><span>	&lt;</span><span style="color: #F92672;">string</span><span>&gt;arm64&lt;/</span><span style="color: #F92672;">string</span><span>&gt;</span></span>
+<span class="giallo-l"><span>	&lt;</span><span style="color: #F92672;">key</span><span>&gt;UILaunchStoryboardName&lt;/</span><span style="color: #F92672;">key</span><span>&gt;</span></span>
+<span class="giallo-l"><span>	&lt;</span><span style="color: #F92672;">string</span><span>&gt;&lt;/</span><span style="color: #F92672;">string</span><span>&gt;</span></span>
+<span class="giallo-l"><span>&lt;/</span><span style="color: #F92672;">dict</span><span>&gt;</span></span>
+<span class="giallo-l"><span>&lt;/</span><span style="color: #F92672;">plist</span><span>&gt;</span></span></code></pre>
+<p>The key parts here are <code>CFBundleExecutable</code> as <code>use-objc2-xc-ui-automation</code>
+which is the executable and <code>CFBundleIdentifier</code> as <code>com.simlay.net.Dinghy</code>
+which is the identifier when launching the app via <code>simctl launch booted com.simlay.net.Dinghy</code>.</p>
+<p>Given that bundling is a post-<code>cargo build</code> step, I wrap this in a <code>Makefile</code>:</p>
+<pre class="giallo" style="color: #D5CED9; background-color: #23262E;"><code data-lang="make"><span class="giallo-l"><span style="color: #00E8C6;">EMULATOR</span><span>=&#39;iPhone 16e&#39;</span></span>
+<span class="giallo-l"><span style="color: #00E8C6;">WRAPPER_ID</span><span>=com.simlay.net.Dinghy</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #FFE66D;">build</span><span>:</span></span>
+<span class="giallo-l"><span>	cargo build --target aarch64-apple-ios-sim --all --all-targets</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #FFE66D;">bundle</span><span>: build</span></span>
+<span class="giallo-l"><span>	cp ./target/aarch64-apple-ios-sim/debug/use-objc2-xc-ui-automation ./RustApp.app/</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #FFE66D;">install</span><span>: bundle</span></span>
+<span class="giallo-l"><span>	xcrun simctl install </span><span style="color: #96E072;">$(</span><span style="color: #00E8C6;">EMULATOR</span><span style="color: #96E072;">)</span><span> ./RustApp.app/</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #FFE66D;">run</span><span>: install</span></span>
+<span class="giallo-l"><span>	xcrun simctl launch --console --terminate-running-process </span><span style="color: #96E072;">$(</span><span style="color: #00E8C6;">EMULATOR</span><span style="color: #96E072;">) $(</span><span style="color: #00E8C6;">WRAPPER_ID</span><span style="color: #96E072;">)</span></span></code></pre>
+<p>Here, <code>make run</code> will run <code>cargo build</code>, copy the executable, put it in the
+expected location, install and launch it in the iPhone 16e simulator. (The
+simulator is expected to be booted up).</p>
+<p>This should output:</p>
+<pre class="giallo" style="color: #D5CED9; background-color: #23262E;"><code data-lang="plain"><span class="giallo-l"><span>$ make run</span></span>
+<span class="giallo-l"><span>cargo build --target aarch64-apple-ios-sim --all --all-targets</span></span>
+<span class="giallo-l"><span>    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.00s</span></span>
+<span class="giallo-l"><span>cp ./target/aarch64-apple-ios-sim/debug/use-objc2-xc-ui-automation ./RustApp.app/</span></span>
+<span class="giallo-l"><span>xcrun simctl install &#39;iPhone 16e&#39; ./RustApp.app/</span></span>
+<span class="giallo-l"><span>xcrun simctl launch --console --terminate-running-process &#39;iPhone 16e&#39; com.simlay.net.Dinghy</span></span>
+<span class="giallo-l"><span>com.simlay.net.Dinghy: 74660</span></span>
+<span class="giallo-l"><span>Hello, world!</span></span></code></pre>
+<p>It's a little out of scope for this post but the smallest "app" I've found for
+this to be a single view that's just a <code>UITextField</code>.</p>
+<pre class="giallo" style="color: #D5CED9; background-color: #23262E;"><code data-lang="rust"><span class="giallo-l"><span style="color: #C74DED;">use</span><span> objc2</span><span style="color: #EE5D43;">::</span><span>{</span></span>
+<span class="giallo-l"><span>    define_class, msg_send,</span></span>
+<span class="giallo-l"><span>    rc</span><span style="color: #EE5D43;">::</span><span>{</span><span style="color: #FFE66D;">Allocated</span><span>,</span><span style="color: #FFE66D;"> Retained</span><span>},</span></span>
+<span class="giallo-l"><span>    runtime</span><span style="color: #EE5D43;">::</span><span style="color: #FFE66D;">AnyObject</span><span>,</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">    ClassType</span><span>,</span><span style="color: #FFE66D;"> Ivars</span><span>,</span><span style="color: #FFE66D;"> MainThreadMarker</span><span>,</span><span style="color: #FFE66D;"> MainThreadOnly</span><span>,</span></span>
+<span class="giallo-l"><span>};</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #C74DED;">use</span><span> objc2_foundation</span><span style="color: #EE5D43;">::</span><span>{</span><span style="color: #FFE66D;">NSDictionary</span><span>,</span><span style="color: #FFE66D;"> NSObject</span><span>,</span><span style="color: #FFE66D;"> NSObjectProtocol</span><span>,</span><span style="color: #FFE66D;"> NSString</span><span>};</span></span>
+<span class="giallo-l"><span style="color: #C74DED;">use</span><span> objc2_ui_kit</span><span style="color: #EE5D43;">::</span><span>{</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">    UIApplication</span><span>,</span><span style="color: #FFE66D;"> UIApplicationDelegate</span><span>,</span><span style="color: #FFE66D;"> UIApplicationLaunchOptionsKey</span><span>,</span><span style="color: #FFE66D;"> UIScreen</span><span>,</span><span style="color: #FFE66D;"> UITextField</span><span>,</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">    UIViewController</span><span>,</span><span style="color: #FFE66D;"> UIWindow</span><span>,</span></span>
+<span class="giallo-l"><span>};</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #FFE66D;">define_class!</span><span>(</span></span>
+<span class="giallo-l"><span style="color: #A0A1A7CC;">    // SAFETY:</span></span>
+<span class="giallo-l"><span style="color: #A0A1A7CC;">    // - `NSObject` does not have any subclassing requirements.</span></span>
+<span class="giallo-l"><span style="color: #A0A1A7CC;">    // - `AppDelegate` does not implement `Drop`.</span></span>
+<span class="giallo-l"><span>    #[</span><span style="color: #C74DED;">unsafe</span><span>(super(</span><span style="color: #FFE66D;">NSObject</span><span>))]</span></span>
+<span class="giallo-l"><span>    #[thread_kind </span><span style="color: #EE5D43;">=</span><span style="color: #FFE66D;"> MainThreadOnly</span><span>]</span></span>
+<span class="giallo-l"><span style="color: #C74DED;">    struct</span><span style="color: #FFE66D;"> AppDelegate</span><span> {</span></span>
+<span class="giallo-l"><span style="color: #00E8C6;">        window</span><span style="color: #EE5D43;">:</span><span> std</span><span style="color: #EE5D43;">::</span><span>cell</span><span style="color: #EE5D43;">::</span><span style="color: #FFE66D;">RefCell</span><span>&lt;</span><span style="color: #FFE66D;">Option</span><span>&lt;</span><span style="color: #FFE66D;">Retained</span><span>&lt;</span><span style="color: #FFE66D;">UIWindow</span><span>&gt;&gt;&gt;,</span></span>
+<span class="giallo-l"><span>    }</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #C74DED;">    impl</span><span style="color: #FFE66D;"> AppDelegate</span><span> {</span></span>
+<span class="giallo-l"><span style="color: #A0A1A7CC;">        // Called by `UIApplication::main`.</span></span>
+<span class="giallo-l"><span>        #[</span><span style="color: #C74DED;">unsafe</span><span>(method_id(init))]</span></span>
+<span class="giallo-l"><span style="color: #C74DED;">        fn</span><span style="color: #FFE66D;"> init</span><span>(</span><span style="color: #00E8C6;">this</span><span style="color: #EE5D43;">:</span><span style="color: #FFE66D;"> Allocated</span><span>&lt;</span><span style="color: #00E8C6;">Self</span><span>&gt;)</span><span style="color: #EE5D43;"> -&gt;</span><span style="color: #FFE66D;"> Retained</span><span>&lt;</span><span style="color: #00E8C6;">Self</span><span>&gt; {</span></span>
+<span class="giallo-l"><span style="color: #C74DED;">            let</span><span style="color: #00E8C6;"> this</span><span style="color: #EE5D43;"> =</span><span style="color: #00E8C6;"> this</span><span style="color: #EE5D43;">.</span><span style="color: #FFE66D;">set_ivars</span><span>(Ivars</span><span style="color: #EE5D43;">::</span><span>&lt;</span><span style="color: #00E8C6;">Self</span><span>&gt; {</span></span>
+<span class="giallo-l"><span style="color: #00E8C6;">                window</span><span style="color: #EE5D43;">:</span><span> std</span><span style="color: #EE5D43;">::</span><span>cell</span><span style="color: #EE5D43;">::</span><span>RefCell</span><span style="color: #EE5D43;">::</span><span style="color: #FFE66D;">new</span><span>(</span><span style="color: #FFE66D;">None</span><span>),</span></span>
+<span class="giallo-l"><span>            });</span></span>
+<span class="giallo-l"><span style="color: #C74DED;">            unsafe</span><span> {</span><span style="color: #FFE66D;"> msg_send!</span><span>[</span><span style="color: #00E8C6;">super</span><span>(</span><span style="color: #00E8C6;">this</span><span>),</span><span style="color: #00E8C6;"> init</span><span>] }</span></span>
+<span class="giallo-l"><span>        }</span></span>
+<span class="giallo-l"><span>    }</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #C74DED;">    unsafe impl</span><span style="color: #FFE66D;"> NSObjectProtocol</span><span style="color: #C74DED;"> for</span><span style="color: #FFE66D;"> AppDelegate</span><span> {}</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #C74DED;">    unsafe impl</span><span style="color: #FFE66D;"> UIApplicationDelegate</span><span style="color: #C74DED;"> for</span><span style="color: #FFE66D;"> AppDelegate</span><span> {</span></span>
+<span class="giallo-l"><span>        #[</span><span style="color: #C74DED;">unsafe</span><span>(method(application</span><span style="color: #EE5D43;">:</span><span>didFinishLaunchingWithOptions</span><span style="color: #EE5D43;">:</span><span>))]</span></span>
+<span class="giallo-l"><span style="color: #C74DED;">        unsafe fn</span><span style="color: #FFE66D;"> did_finish_launching_with_options</span><span>(</span></span>
+<span class="giallo-l"><span style="color: #EE5D43;">            &amp;</span><span style="color: #00E8C6;">self</span><span>,</span></span>
+<span class="giallo-l"><span style="color: #00E8C6;">            application</span><span style="color: #EE5D43;">: &amp;</span><span style="color: #FFE66D;">UIApplication</span><span>,</span></span>
+<span class="giallo-l"><span style="color: #00E8C6;">            launch_options</span><span style="color: #EE5D43;">:</span><span style="color: #FFE66D;"> Option</span><span>&lt;</span><span style="color: #EE5D43;">&amp;</span><span style="color: #FFE66D;">NSDictionary</span><span>&lt;</span><span style="color: #FFE66D;">UIApplicationLaunchOptionsKey</span><span>,</span><span style="color: #FFE66D;"> AnyObject</span><span>&gt;&gt;,</span></span>
+<span class="giallo-l"><span>        )</span><span style="color: #EE5D43;"> -&gt;</span><span style="color: #FFE66D;"> bool</span><span> {</span></span>
+<span class="giallo-l"><span style="color: #C74DED;">            let</span><span style="color: #00E8C6;"> mtm</span><span style="color: #EE5D43;"> =</span><span style="color: #FFE66D;"> MainThreadMarker</span><span style="color: #EE5D43;">::</span><span style="color: #FFE66D;">new</span><span>()</span><span style="color: #EE5D43;">.</span><span style="color: #FFE66D;">expect</span><span>(</span><span style="color: #96E072;">&quot;Failed to get mtm&quot;</span><span>);</span></span>
+<span class="giallo-l"><span style="color: #C74DED;">            let</span><span style="color: #00E8C6;"> window</span><span style="color: #EE5D43;"> =</span><span style="color: #FFE66D;"> UIWindow</span><span style="color: #EE5D43;">::</span><span style="color: #FFE66D;">new</span><span>(</span><span style="color: #00E8C6;">mtm</span><span>);</span></span>
+<span class="giallo-l"><span style="color: #00E8C6;">            window</span><span style="color: #EE5D43;">.</span><span style="color: #FFE66D;">setFrame</span><span>(UIScreen</span><span style="color: #EE5D43;">::</span><span style="color: #FFE66D;">mainScreen</span><span>(</span><span style="color: #00E8C6;">mtm</span><span>)</span><span style="color: #EE5D43;">.</span><span style="color: #FFE66D;">bounds</span><span>());</span></span>
+<span class="giallo-l"><span style="color: #00E8C6;">            window</span><span style="color: #EE5D43;">.</span><span style="color: #FFE66D;">makeKeyAndVisible</span><span>();</span></span>
+<span class="giallo-l"><span style="color: #EE5D43;">            *</span><span style="color: #00E8C6;">self</span><span style="color: #EE5D43;">.</span><span style="color: #FFE66D;">window</span><span>()</span><span style="color: #EE5D43;">.</span><span style="color: #FFE66D;">borrow_mut</span><span>()</span><span style="color: #EE5D43;"> =</span><span style="color: #FFE66D;"> Some</span><span>(</span><span style="color: #00E8C6;">window</span><span>);</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #C74DED;">            let</span><span style="color: #00E8C6;"> view_controller</span><span style="color: #EE5D43;"> =</span><span style="color: #FFE66D;"> UIViewController</span><span style="color: #EE5D43;">::</span><span style="color: #FFE66D;">new</span><span>(</span><span style="color: #00E8C6;">mtm</span><span>);</span></span>
+<span class="giallo-l"><span style="color: #C74DED;">            let</span><span style="color: #00E8C6;"> text_field</span><span style="color: #EE5D43;"> =</span><span style="color: #FFE66D;"> UITextField</span><span style="color: #EE5D43;">::</span><span style="color: #FFE66D;">new</span><span>(</span><span style="color: #00E8C6;">mtm</span><span>);</span></span>
+<span class="giallo-l"><span style="color: #00E8C6;">            text_field</span><span style="color: #EE5D43;">.</span><span style="color: #FFE66D;">setText</span><span>(</span><span style="color: #FFE66D;">Some</span><span>(</span><span style="color: #EE5D43;">&amp;</span><span>NSString</span><span style="color: #EE5D43;">::</span><span style="color: #FFE66D;">from_str</span><span>(</span><span style="color: #96E072;">&quot;THIS IS THE DEFAULT TEXT&quot;</span><span>)));</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #00E8C6;">            self</span><span style="color: #EE5D43;">.</span><span style="color: #FFE66D;">window</span><span>()</span><span style="color: #EE5D43;">.</span><span style="color: #FFE66D;">borrow</span><span>()</span><span style="color: #EE5D43;">.</span><span style="color: #FFE66D;">as_ref</span><span>()</span><span style="color: #EE5D43;">.</span><span style="color: #FFE66D;">unwrap</span><span>()</span><span style="color: #EE5D43;">.</span><span style="color: #FFE66D;">setRootViewController</span><span>(</span><span style="color: #FFE66D;">Some</span><span>(</span><span style="color: #EE5D43;">&amp;</span><span style="color: #00E8C6;">view_controller</span><span>));</span></span>
+<span class="giallo-l"><span style="color: #00E8C6;">            view_controller</span><span style="color: #EE5D43;">.</span><span style="color: #FFE66D;">setView</span><span>(</span><span style="color: #FFE66D;">Some</span><span>(</span><span style="color: #EE5D43;">&amp;</span><span style="color: #00E8C6;">text_field</span><span>));</span></span>
+<span class="giallo-l"><span style="color: #00E8C6;">            text_field</span><span style="color: #EE5D43;">.</span><span style="color: #FFE66D;">setBackgroundColor</span><span>(</span><span style="color: #FFE66D;">Some</span><span>(</span><span style="color: #EE5D43;">&amp;</span><span>objc2_ui_kit</span><span style="color: #EE5D43;">::</span><span>UIColor</span><span style="color: #EE5D43;">::</span><span style="color: #FFE66D;">whiteColor</span><span>()));</span></span>
+<span class="giallo-l"><span style="color: #EE5D43;">            true</span></span>
+<span class="giallo-l"><span>        }</span></span>
+<span class="giallo-l"><span>    }</span></span>
+<span class="giallo-l"><span>);</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #C74DED;">fn</span><span style="color: #FFE66D;"> main</span><span>() {</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">    set_llvm_profile_write</span><span>();</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">    println!</span><span>(</span><span style="color: #96E072;">&quot;Hello, World!&quot;</span><span>);</span></span>
+<span class="giallo-l"><span style="color: #C74DED;">    let</span><span style="color: #00E8C6;"> mtm</span><span style="color: #EE5D43;"> =</span><span style="color: #FFE66D;"> MainThreadMarker</span><span style="color: #EE5D43;">::</span><span style="color: #FFE66D;">new</span><span>()</span><span style="color: #EE5D43;">.</span><span style="color: #FFE66D;">unwrap</span><span>();</span></span>
+<span class="giallo-l"><span style="color: #C74DED;">    let</span><span style="color: #00E8C6;"> delegate_class</span><span style="color: #EE5D43;"> =</span><span style="color: #FFE66D;"> NSString</span><span style="color: #EE5D43;">::</span><span style="color: #FFE66D;">from_class</span><span>(AppDelegate</span><span style="color: #EE5D43;">::</span><span style="color: #FFE66D;">class</span><span>());</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">    UIApplication</span><span style="color: #EE5D43;">::</span><span style="color: #FFE66D;">main</span><span>(</span><span style="color: #FFE66D;">None</span><span>,</span><span style="color: #FFE66D;"> Some</span><span>(</span><span style="color: #EE5D43;">&amp;</span><span style="color: #00E8C6;">delegate_class</span><span>),</span><span style="color: #00E8C6;"> mtm</span><span>);</span></span>
+<span class="giallo-l"><span>}</span></span></code></pre>
+<p>The thing missing in this file is the definition of <code>set_llvm_profile_write</code>
+which is covered in the code coverage section below.</p>
+<h1 id="using-objc2-xc-test-and-objc2-xc-ui-automation">Using <code>objc2-xc-test</code> and <code>objc2-xc-ui-automation</code><a class="zola-anchor" href="#using-objc2-xc-test-and-objc2-xc-ui-automation" aria-label="Anchor link for: using-objc2-xc-test-and-objc2-xc-ui-automation">§</a>
+</h1>
+<p>To use the XCTest and XCUIAutomation from rust you declare the class and use
+<code>ctor</code> to register the class. This is a <code>#![no_main]</code> rust binary. The actual test here will:</p>
+<ul>
+<li>Start the app (possibly with a <code>LLVM_PROFILE_FILE</code> environment variable set).</li>
+<li>It will tap on the one and only text field</li>
+<li>Type some text into the <code>UITextfield</code>.</li>
+<li>Take a screenshot</li>
+<li>Ask siri a question from plain text</li>
+<li>Tap the home button - This will exit siri.</li>
+<li>Tap the home button again - This will background the app (triggering an
+<code>__llvm_profile_write_file</code> for code coverage).</li>
+</ul>
+<pre class="giallo" style="color: #D5CED9; background-color: #23262E;"><code data-lang="rust"><span class="giallo-l"><span>#![no_main]</span><span style="color: #A0A1A7CC;"> // Required, we build this with `-bundle`.</span></span>
+<span class="giallo-l"><span style="color: #C74DED;">use</span><span> objc2</span><span style="color: #EE5D43;">::</span><span>{</span><span style="color: #FFE66D;">ClassType</span><span>,</span><span style="color: #FFE66D;"> MainThreadOnly</span><span>, define_class};</span></span>
+<span class="giallo-l"><span style="color: #C74DED;">use</span><span> objc2_foundation</span><span style="color: #EE5D43;">::</span><span style="color: #FFE66D;">NSString</span><span>;</span></span>
+<span class="giallo-l"><span style="color: #C74DED;">use</span><span> objc2_foundation</span><span style="color: #EE5D43;">::</span><span>{</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">    NSSearchPathDirectory</span><span>,</span><span style="color: #FFE66D;"> NSSearchPathDomainMask</span><span>,</span><span style="color: #FFE66D;"> NSSearchPathForDirectoriesInDomains</span><span>,</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">    NSDictionary</span><span>, ns_string,</span></span>
+<span class="giallo-l"><span>};</span></span>
+<span class="giallo-l"><span style="color: #C74DED;">use</span><span> objc2_xc_test</span><span style="color: #EE5D43;">::</span><span style="color: #FFE66D;">XCTestCase</span><span>;</span></span>
+<span class="giallo-l"><span style="color: #C74DED;">use</span><span> objc2_xc_ui_automation</span><span style="color: #EE5D43;">::</span><span>{</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">    XCUIApplication</span><span>,</span><span style="color: #FFE66D;"> XCUIDevice</span><span>,</span><span style="color: #FFE66D;"> XCUIElementTypeQueryProvider</span><span>,</span><span style="color: #FFE66D;"> XCUIScreenshot</span><span>,</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">    XCUIScreenshotProviding</span><span>,</span></span>
+<span class="giallo-l"><span>};</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #FFE66D;">define_class!</span><span>(</span></span>
+<span class="giallo-l"><span>    #[</span><span style="color: #C74DED;">unsafe</span><span>(super </span><span style="color: #EE5D43;">=</span><span style="color: #FFE66D;"> XCTestCase</span><span>)]</span></span>
+<span class="giallo-l"><span>    #[thread_kind </span><span style="color: #EE5D43;">=</span><span style="color: #FFE66D;"> MainThreadOnly</span><span>]</span></span>
+<span class="giallo-l"><span style="color: #C74DED;">    struct</span><span style="color: #FFE66D;"> TestCase</span><span>;</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #C74DED;">    impl</span><span style="color: #FFE66D;"> TestCase</span><span> {</span></span>
+<span class="giallo-l"><span>        #[</span><span style="color: #C74DED;">unsafe</span><span>(method(setUp))]</span></span>
+<span class="giallo-l"><span style="color: #C74DED;">        fn</span><span style="color: #FFE66D;"> set_up</span><span>(</span><span style="color: #EE5D43;">&amp;</span><span style="color: #00E8C6;">self</span><span>) {</span></span>
+<span class="giallo-l"><span style="color: #A0A1A7CC;">            // Test setup code in here.</span></span>
+<span class="giallo-l"><span>        }</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>        #[</span><span style="color: #C74DED;">unsafe</span><span>(method(tearDown))]</span></span>
+<span class="giallo-l"><span style="color: #C74DED;">        fn</span><span style="color: #FFE66D;"> tear_down</span><span>(</span><span style="color: #EE5D43;">&amp;</span><span style="color: #00E8C6;">self</span><span>) {</span></span>
+<span class="giallo-l"><span style="color: #A0A1A7CC;">            // Test teardown code in here.</span></span>
+<span class="giallo-l"><span>        }</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>        #[</span><span style="color: #C74DED;">unsafe</span><span>(method(testSimple))]</span></span>
+<span class="giallo-l"><span style="color: #C74DED;">        fn</span><span style="color: #FFE66D;"> test_simple</span><span>(</span><span style="color: #EE5D43;">&amp;</span><span style="color: #00E8C6;">self</span><span>) {</span></span>
+<span class="giallo-l"><span style="color: #C74DED;">            let</span><span style="color: #00E8C6;"> app</span><span style="color: #EE5D43;"> =</span><span style="color: #FFE66D;"> XCUIApplication</span><span style="color: #EE5D43;">::</span><span style="color: #FFE66D;">new</span><span>(</span><span style="color: #00E8C6;">self</span><span style="color: #EE5D43;">.</span><span style="color: #FFE66D;">mtm</span><span>());</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #A0A1A7CC;">            // SIMCTL_CHILD_DINGHY_LLVM_PROFILE_FILE</span></span>
+<span class="giallo-l"><span style="color: #C74DED;">            if let</span><span style="color: #FFE66D;"> Ok</span><span>(</span><span style="color: #00E8C6;">val</span><span>)</span><span style="color: #EE5D43;"> =</span><span> std</span><span style="color: #EE5D43;">::</span><span>env</span><span style="color: #EE5D43;">::</span><span style="color: #FFE66D;">var</span><span>(</span><span style="color: #96E072;">&quot;DINGHY_LLVM_PROFILE_FILE&quot;</span><span>) {</span></span>
+<span class="giallo-l"><span style="color: #C74DED;">                let</span><span style="color: #00E8C6;"> envs</span><span style="color: #EE5D43;">:</span><span> objc2</span><span style="color: #EE5D43;">::</span><span>rc</span><span style="color: #EE5D43;">::</span><span style="color: #FFE66D;">Retained</span><span>&lt;</span><span style="color: #FFE66D;">NSDictionary</span><span>&lt;</span><span style="color: #FFE66D;">NSString</span><span>,</span><span style="color: #FFE66D;"> NSString</span><span>&gt;&gt;</span><span style="color: #EE5D43;"> =</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">                    NSDictionary</span><span style="color: #EE5D43;">::</span><span style="color: #FFE66D;">from_slices</span><span>(</span></span>
+<span class="giallo-l"><span style="color: #EE5D43;">                        &amp;</span><span>[</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">                        ns_string!</span><span>(</span><span style="color: #96E072;">&quot;LLVM_PROFILE_FILE&quot;</span><span>),</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">                        ns_string!</span><span>(</span><span style="color: #96E072;">&quot;LLVM_PROFILE_VERBOSE_ERRORS&quot;</span><span>),</span></span>
+<span class="giallo-l"><span>                        ],</span></span>
+<span class="giallo-l"><span style="color: #EE5D43;">                        &amp;</span><span>[</span><span style="color: #EE5D43;">&amp;</span><span style="color: #FFE66D;">NSString</span><span style="color: #EE5D43;">::</span><span style="color: #FFE66D;">from_str</span><span>(</span><span style="color: #00E8C6;">val</span><span style="color: #EE5D43;">.</span><span style="color: #FFE66D;">as_str</span><span>()),</span><span style="color: #FFE66D;"> ns_string!</span><span>(</span><span style="color: #96E072;">&quot;1&quot;</span><span>)],</span></span>
+<span class="giallo-l"><span>                    );</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #00E8C6;">                app</span><span style="color: #EE5D43;">.</span><span style="color: #FFE66D;">setLaunchEnvironment</span><span>(</span><span style="color: #EE5D43;">&amp;</span><span style="color: #00E8C6;">envs</span><span>);</span></span>
+<span class="giallo-l"><span>            }</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #00E8C6;">            app</span><span style="color: #EE5D43;">.</span><span style="color: #FFE66D;">launch</span><span>();</span></span>
+<span class="giallo-l"><span style="color: #C74DED;">            let</span><span style="color: #00E8C6;"> text_view</span><span style="color: #EE5D43;"> =</span><span style="color: #00E8C6;"> app</span><span style="color: #EE5D43;">.</span><span style="color: #FFE66D;">textFields</span><span>()</span><span style="color: #EE5D43;">.</span><span style="color: #FFE66D;">element</span><span>();</span></span>
+<span class="giallo-l"><span style="color: #00E8C6;">            text_view</span><span style="color: #EE5D43;">.</span><span style="color: #FFE66D;">tap</span><span>();</span></span>
+<span class="giallo-l"><span style="color: #00E8C6;">            text_view</span><span style="color: #EE5D43;">.</span><span style="color: #FFE66D;">typeText</span><span>(</span><span style="color: #EE5D43;">&amp;</span><span>NSString</span><span style="color: #EE5D43;">::</span><span style="color: #FFE66D;">from_str</span><span>(</span><span style="color: #96E072;">&quot; THIS TEXT IS FROM XCTEST&quot;</span><span>));</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #C74DED;">            let</span><span style="color: #00E8C6;"> device</span><span style="color: #EE5D43;"> =</span><span style="color: #FFE66D;"> XCUIDevice</span><span style="color: #EE5D43;">::</span><span style="color: #FFE66D;">sharedDevice</span><span>(</span><span style="color: #00E8C6;">self</span><span style="color: #EE5D43;">.</span><span style="color: #FFE66D;">mtm</span><span>());</span></span>
+<span class="giallo-l"><span style="color: #C74DED;">            let</span><span style="color: #00E8C6;"> siri</span><span style="color: #EE5D43;"> =</span><span style="color: #00E8C6;"> device</span><span style="color: #EE5D43;">.</span><span style="color: #FFE66D;">siriService</span><span>();</span></span>
+<span class="giallo-l"><span style="color: #00E8C6;">            siri</span><span style="color: #EE5D43;">.</span><span style="color: #FFE66D;">activateWithVoiceRecognitionText</span><span>(</span><span style="color: #EE5D43;">&amp;</span><span>NSString</span><span style="color: #EE5D43;">::</span><span style="color: #FFE66D;">from_str</span><span>(</span><span style="color: #96E072;">&quot;What is the capital of germany?&quot;</span><span>));</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>            std</span><span style="color: #EE5D43;">::</span><span>thread</span><span style="color: #EE5D43;">::</span><span style="color: #FFE66D;">sleep</span><span>(std</span><span style="color: #EE5D43;">::</span><span>time</span><span style="color: #EE5D43;">::</span><span>Duration</span><span style="color: #EE5D43;">::</span><span style="color: #FFE66D;">from_millis</span><span>(</span><span style="color: #F39C12;">1000</span><span>));</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">            save_screenshot</span><span>(</span><span style="color: #EE5D43;">&amp;</span><span style="color: #00E8C6;">app</span><span style="color: #EE5D43;">.</span><span style="color: #FFE66D;">screenshot</span><span>());</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #00E8C6;">            device</span><span style="color: #EE5D43;">.</span><span style="color: #FFE66D;">pressButton</span><span>(objc2_xc_ui_automation</span><span style="color: #EE5D43;">::</span><span>XCUIDeviceButton</span><span style="color: #EE5D43;">::</span><span style="color: #FFE66D;">Home</span><span>);</span></span>
+<span class="giallo-l"><span style="color: #00E8C6;">            device</span><span style="color: #EE5D43;">.</span><span style="color: #FFE66D;">pressButton</span><span>(objc2_xc_ui_automation</span><span style="color: #EE5D43;">::</span><span>XCUIDeviceButton</span><span style="color: #EE5D43;">::</span><span style="color: #FFE66D;">Home</span><span>);</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>        }</span></span>
+<span class="giallo-l"><span>    }</span></span>
+<span class="giallo-l"><span>);</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #A0A1A7CC;">/// Load and initialize the class such that XCTest can see it.</span></span>
+<span class="giallo-l"><span>#[ctor</span><span style="color: #EE5D43;">::</span><span>ctor]</span></span>
+<span class="giallo-l"><span style="color: #C74DED;">unsafe fn</span><span style="color: #FFE66D;"> setup</span><span>() {</span></span>
+<span class="giallo-l"><span style="color: #C74DED;">    let</span><span style="color: #00E8C6;"> _</span><span style="color: #EE5D43;"> =</span><span style="color: #FFE66D;"> TestCase</span><span style="color: #EE5D43;">::</span><span style="color: #FFE66D;">class</span><span>();</span></span>
+<span class="giallo-l"><span>}</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #C74DED;">fn</span><span style="color: #FFE66D;"> save_screenshot</span><span>(</span><span style="color: #00E8C6;">screenshot</span><span style="color: #EE5D43;">: &amp;</span><span style="color: #FFE66D;">XCUIScreenshot</span><span>) {</span></span>
+<span class="giallo-l"><span style="color: #C74DED;">    let</span><span style="color: #00E8C6;"> path</span><span style="color: #EE5D43;"> =</span><span style="color: #FFE66D;"> NSSearchPathForDirectoriesInDomains</span><span>(</span></span>
+<span class="giallo-l"><span>        NSSearchPathDirectory</span><span style="color: #EE5D43;">::</span><span style="color: #FFE66D;">DocumentDirectory</span><span>,</span></span>
+<span class="giallo-l"><span>        NSSearchPathDomainMask</span><span style="color: #EE5D43;">::</span><span style="color: #FFE66D;">UserDomainMask</span><span>,</span></span>
+<span class="giallo-l"><span style="color: #EE5D43;">        true</span><span>,</span></span>
+<span class="giallo-l"><span>    );</span></span>
+<span class="giallo-l"><span style="color: #C74DED;">    if let</span><span style="color: #FFE66D;"> Some</span><span>(</span><span style="color: #00E8C6;">path</span><span>)</span><span style="color: #EE5D43;"> =</span><span style="color: #00E8C6;"> path</span><span style="color: #EE5D43;">.</span><span style="color: #FFE66D;">firstObject</span><span>() {</span></span>
+<span class="giallo-l"><span style="color: #C74DED;">        let</span><span style="color: #00E8C6;"> path</span><span style="color: #EE5D43;"> =</span><span style="color: #00E8C6;"> path</span><span style="color: #EE5D43;">.</span><span style="color: #FFE66D;">to_string</span><span>();</span></span>
+<span class="giallo-l"><span style="color: #C74DED;">        let</span><span style="color: #00E8C6;"> path</span><span style="color: #EE5D43;"> =</span><span> std</span><span style="color: #EE5D43;">::</span><span>path</span><span style="color: #EE5D43;">::</span><span style="color: #FFE66D;">Path</span><span style="color: #EE5D43;">::</span><span style="color: #FFE66D;">new</span><span>(</span><span style="color: #EE5D43;">&amp;</span><span style="color: #00E8C6;">path</span><span>)</span><span style="color: #EE5D43;">.</span><span style="color: #FFE66D;">join</span><span>(</span><span style="color: #FFE66D;">format!</span><span>(</span><span style="color: #96E072;">&quot;screenshot.png&quot;</span><span>));</span></span>
+<span class="giallo-l"><span style="color: #C74DED;">        let</span><span style="color: #00E8C6;"> res</span><span style="color: #EE5D43;"> =</span><span style="color: #00E8C6;"> screenshot</span></span>
+<span class="giallo-l"><span style="color: #EE5D43;">            .</span><span style="color: #FFE66D;">PNGRepresentation</span><span>()</span></span>
+<span class="giallo-l"><span style="color: #EE5D43;">            .</span><span style="color: #FFE66D;">writeToFile_atomically</span><span>(</span><span style="color: #EE5D43;">&amp;</span><span>NSString</span><span style="color: #EE5D43;">::</span><span style="color: #FFE66D;">from_str</span><span>(</span><span style="color: #00E8C6;">path</span><span style="color: #EE5D43;">.</span><span style="color: #FFE66D;">to_str</span><span>()</span><span style="color: #EE5D43;">.</span><span style="color: #FFE66D;">unwrap</span><span>()),</span><span style="color: #EE5D43;"> false</span><span>);</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">        assert!</span><span>(</span><span style="color: #00E8C6;">res</span><span>,</span><span style="color: #96E072;"> &quot;failed writing screenshot&quot;</span><span>);</span></span>
+<span class="giallo-l"><span>    }</span></span>
+<span class="giallo-l"><span>}</span></span></code></pre><h1 id="bundling-the-xctests">Bundling the XCTests<a class="zola-anchor" href="#bundling-the-xctests" aria-label="Anchor link for: bundling-the-xctests">§</a>
+</h1>
+<p>Bundling the XCTest into an "iOS app" is a lot more difficult. We need:</p>
+<ul>
+<li><code>build.rs</code></li>
+<li><code>ui_tests.xctestconfiguration</code> - this is generated from
+<code>ui_tests.xctestconfiguration.base</code> with some <code>sed</code> text replacements.</li>
+<li><code>RustUITests.app</code> and a <code>Info.plist</code></li>
+<li><code>DinghyUITests.xctest/Info.plist</code>.</li>
+</ul>
+<p>Where's what the directory structure looks like with all these:</p>
+<pre class="giallo" style="color: #D5CED9; background-color: #23262E;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FFE66D;">$</span><span style="color: #96E072;"> tree</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">.</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">├──</span><span style="color: #96E072;"> Cargo.lock</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">├──</span><span style="color: #96E072;"> Cargo.toml</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">├──</span><span style="color: #96E072;"> Makefile</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">├──</span><span style="color: #96E072;"> RustUITests.app</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">│  </span><span style="color: #96E072;"> ├── Frameworks</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">│  </span><span style="color: #96E072;"> ├── Info.plist</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">│  </span><span style="color: #96E072;"> ├── PlugIns</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">│  </span><span style="color: #96E072;"> │   └── DinghyUITests.xctest</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">│  </span><span style="color: #96E072;"> │       ├── Info.plist</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">│  </span><span style="color: #96E072;"> │       └── ui_tests</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">│  </span><span style="color: #96E072;"> └── XCTRunner</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">├──</span><span style="color: #96E072;"> RustApp.app</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">│  </span><span style="color: #96E072;"> ├── Info.plist</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">│  </span><span style="color: #96E072;"> └── use-objc2-xc-ui-automation</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">├──</span><span style="color: #96E072;"> src</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">│  </span><span style="color: #96E072;"> └── main.rs</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">├──</span><span style="color: #96E072;"> stdout.txt</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">├──</span><span style="color: #96E072;"> ui_tests</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">│  </span><span style="color: #96E072;"> ├── build.rs</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">│  </span><span style="color: #96E072;"> ├── Cargo.toml</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">│  </span><span style="color: #96E072;"> ├── src</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">│  </span><span style="color: #96E072;"> │   └── main.rs</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">│  </span><span style="color: #96E072;"> ├── ui_tests.xctestconfiguration</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">│  </span><span style="color: #96E072;"> └── ui_tests.xctestconfiguration.base</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">└──</span><span style="color: #96E072;"> ui_tests.png</span></span></code></pre>
+<p>The makefile that wraps these things is a bit chaotic. But the general steps are:</p>
+<ul>
+<li>Build the <code>ui_tests</code> binary.</li>
+<li>Copy it into the <code>RustUITests.app/Plugins/DinghyUITests.xctest/</code> directory.</li>
+<li>Copy a number of frameworks from the
+<code>IPhoneSimulator.platform/Developer/Library/Frameworks</code> from the xcode SDKs
+into the <code>RustUITests.app/Frameworks</code> directory</li>
+<li>Install the app to be tested in the iOS simulator</li>
+<li>Install the UITest app into the iOS simulator</li>
+<li>Get both of their app containers (<code>xcrun simctl get_container</code>)</li>
+<li>Do a <code>sed</code> replacement on the container path for the xctest.configuration</li>
+<li>Launch the <code>RustUITests</code> app with <code>SIMCTL_CHILD_LLVM_PROFILE_FILE=</code>
+and <code>SIMCTL_CHILD_DINGHY_LLVM_PROFILE_FILE</code> to enable code coverage.</li>
+</ul>
+<pre class="giallo" style="color: #D5CED9; background-color: #23262E;"><code data-lang="make"><span class="giallo-l"><span style="color: #FFE66D;">ui-tests-build</span><span>:</span></span>
+<span class="giallo-l"><span>	cargo build -p ui_tests</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #FFE66D;">ui-tests-bundle-tools</span><span>: ui-tests-build</span></span>
+<span class="giallo-l"><span>	cp </span><span style="color: #96E072;">$(</span><span style="color: #FFE66D;">shell</span><span style="color: #96E072;"> xcode-select --print-path)</span><span>/Platforms/IPhoneSimulator.platform/Developer/Library/Xcode/Agents/XCTRunner.app/XCTRunner                ./RustUITests.app/</span></span>
+<span class="giallo-l"><span>	cp -r </span><span style="color: #96E072;">$(</span><span style="color: #FFE66D;">shell</span><span style="color: #96E072;"> xcode-select --print-path)</span><span>/Platforms/IPhoneSimulator.platform/Developer/Library/Frameworks                                       ./RustUITests.app/</span></span>
+<span class="giallo-l"><span>	cp -r </span><span style="color: #96E072;">$(</span><span style="color: #FFE66D;">shell</span><span style="color: #96E072;"> xcode-select --print-path)</span><span>/Platforms/IPhoneSimulator.platform/Developer/Library/PrivateFrameworks/XCTestCore.framework           ./RustUITests.app/Frameworks/</span></span>
+<span class="giallo-l"><span>	cp -r </span><span style="color: #96E072;">$(</span><span style="color: #FFE66D;">shell</span><span style="color: #96E072;"> xcode-select --print-path)</span><span>/Platforms/IPhoneSimulator.platform/Developer/Library/PrivateFrameworks/XCTestSupport.framework        ./RustUITests.app/Frameworks/</span></span>
+<span class="giallo-l"><span>	cp -r </span><span style="color: #96E072;">$(</span><span style="color: #FFE66D;">shell</span><span style="color: #96E072;"> xcode-select --print-path)</span><span>/Platforms/IPhoneSimulator.platform/Developer/Library/PrivateFrameworks/XCUnit.framework               ./RustUITests.app/Frameworks/</span></span>
+<span class="giallo-l"><span>	cp -r </span><span style="color: #96E072;">$(</span><span style="color: #FFE66D;">shell</span><span style="color: #96E072;"> xcode-select --print-path)</span><span>/Platforms/IPhoneSimulator.platform/Developer/Library/PrivateFrameworks/XCTAutomationSupport.framework ./RustUITests.app/Frameworks/</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #FFE66D;">ui-tests-bundle</span><span>: ui-tests-bundle-tools</span></span>
+<span class="giallo-l"><span>	cp ./target/aarch64-apple-ios-sim/debug/ui_tests  ./RustUITests.app/Plugins/DinghyUITests.xctest/</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #FFE66D;">ui-tests-install</span><span>: ui-tests-bundle</span></span>
+<span class="giallo-l"><span>	xcrun simctl install </span><span style="color: #96E072;">$(</span><span style="color: #00E8C6;">EMULATOR</span><span style="color: #96E072;">)</span><span> RustUITests.app/</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #00E8C6;">XCWRAPPER_ID</span><span>=com.simlay.net.DinghyUITests.xctrunner</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #00E8C6;">GET_CONTAINER</span><span>=xcrun simctl get_app_container </span><span style="color: #96E072;">$(</span><span style="color: #00E8C6;">EMULATOR</span><span style="color: #96E072;">)</span></span>
+<span class="giallo-l"><span style="color: #00E8C6;">DINGHY_CONTAINER_CMD</span><span>=</span><span style="color: #96E072;">$(</span><span style="color: #00E8C6;">GET_CONTAINER</span><span style="color: #96E072;">) $(</span><span style="color: #00E8C6;">WRAPPER_ID</span><span style="color: #96E072;">)</span></span>
+<span class="giallo-l"><span style="color: #00E8C6;">DINGHY_CONTAINER</span><span>=</span><span style="color: #96E072;">$(</span><span style="color: #FFE66D;">shell</span><span style="color: #96E072;"> $(</span><span style="color: #00E8C6;">DINGHY_CONTAINER_CMD</span><span style="color: #96E072;">) data)</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #00E8C6;">XCTEST_CONTAINER_CMD</span><span>=</span><span style="color: #96E072;">$(</span><span style="color: #00E8C6;">GET_CONTAINER</span><span style="color: #96E072;">) $(</span><span style="color: #00E8C6;">XCWRAPPER_ID</span><span style="color: #96E072;">)</span></span>
+<span class="giallo-l"><span style="color: #00E8C6;">XCTEST_CONTAINER</span><span>=</span><span style="color: #96E072;">$(</span><span style="color: #FFE66D;">shell</span><span style="color: #96E072;"> $(</span><span style="color: #00E8C6;">XCTEST_CONTAINER_CMD</span><span style="color: #96E072;">) data)</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #FFE66D;">ui-tests-xctest-configuration</span><span>: ui-tests-install</span></span>
+<span class="giallo-l"><span>	cat ui_tests/ui_tests.xctestconfiguration.base | </span><span style="color: #EE5D43;">\</span></span>
+<span class="giallo-l"><span>		sed &quot;s:UI_TEST_WRAPPER_CONTAINER:</span><span style="color: #96E072;">$(</span><span style="color: #FFE66D;">shell</span><span style="color: #96E072;"> $(</span><span style="color: #00E8C6;">XCTEST_CONTAINER_CMD</span><span style="color: #96E072;">))</span><span>:g&quot; | </span><span style="color: #EE5D43;">\</span></span>
+<span class="giallo-l"><span>		sed &quot;s:WRAPPER_APP_CONTAINER:</span><span style="color: #96E072;">$(</span><span style="color: #FFE66D;">shell</span><span style="color: #96E072;"> $(</span><span style="color: #00E8C6;">DINGHY_CONTAINER_CMD</span><span style="color: #96E072;">))</span><span>:g&quot; | </span><span style="color: #EE5D43;">\</span></span>
+<span class="giallo-l"><span>		sed &quot;s:WRAPPER_APP_ID:</span><span style="color: #96E072;">$(</span><span style="color: #00E8C6;">WRAPPER_ID</span><span style="color: #96E072;">)</span><span>:g&quot; </span><span style="color: #EE5D43;">\</span></span>
+<span class="giallo-l"><span>		&gt; ui_tests/ui_tests.xctestconfiguration</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #00E8C6;">LAUNCH</span><span>=xcrun simctl launch --console --terminate-running-process </span><span style="color: #96E072;">$(</span><span style="color: #00E8C6;">EMULATOR</span><span style="color: #96E072;">)</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #FFE66D;">ui-tests-run</span><span>: install ui-tests-install ui-tests-xctest-configuration</span></span>
+<span class="giallo-l"><span>	SIMCTL_CHILD_DINGHY_LLVM_PROFILE_FILE=&quot;</span><span style="color: #96E072;">$(</span><span style="color: #00E8C6;">DINGHY_CONTAINER</span><span style="color: #96E072;">)</span><span>/Documents/dinghy.profraw&quot; SIMCTL_CHILD_LLVM_PROFILE_FILE=&quot;</span><span style="color: #96E072;">$(</span><span style="color: #00E8C6;">XCTEST_CONTAINER</span><span style="color: #96E072;">)</span><span>/Documents/xctrunner.profraw&quot; </span><span style="color: #96E072;">$(</span><span style="color: #00E8C6;">LAUNCH</span><span style="color: #96E072;">) $(</span><span style="color: #00E8C6;">XCWRAPPER_ID</span><span style="color: #96E072;">)</span><span> 2&gt;&amp;1 | tee </span><span style="color: #96E072;">$(</span><span style="color: #00E8C6;">PWD</span><span style="color: #96E072;">)</span><span>/stdout.txt</span></span>
+<span class="giallo-l"><span>	make ui-tests-cp-screenshot</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #FFE66D;">ui-tests-cp-screenshot</span><span>:</span></span>
+<span class="giallo-l"><span>	cp &quot;</span><span style="color: #96E072;">$(</span><span style="color: #00E8C6;">XCTEST_CONTAINER</span><span style="color: #96E072;">)</span><span>/Documents/screenshot.png&quot; ui_tests.png</span></span>
+<span class="giallo-l"><span>	sips -Z 640 ui_tests.png</span></span></code></pre>
+<p>Throw this all together and <code>make ui-tests-run</code> should bundle up both apps,
+install them into the simulator, and run the XCTests. Generally, after
+<code>cargo build</code> finishes, this still takes about 10 seconds to bundle,
+install and run. More if there is an error in the XCTests.</p>
+<p>At the end of the <code>ui-tests-run</code> rule, it calls <code>make ui-tests-cp-screenshot</code>.
+This copies the created screenshot from the app's data directory to the local
+one and compresses the image. I've compressed the image quite but you can get
+the gist:</p>
+<p><img src="../../posts/2026-01-use-objc2-xc-ui-automation/ui_tests.png" alt="" /></p>
+<h2 id="test-coverage-reports">Test Coverage reports<a class="zola-anchor" href="#test-coverage-reports" aria-label="Anchor link for: test-coverage-reports">§</a>
+</h2>
+<p>This is a bit of an aside but if we're going this far, we might as well get
+test coverage from the App and the UI Test App. To do this, you need <code>"-C",      "instrument-coverage"</code> as a rust flag and set the environment variable of
+<code>LLVM_PROFILE_FILE</code> for both the XCTest app and the app to be tested. This
+is why there is are environment variables of:
+<code>SIMCTL_CHILD_DINGHY_LLVM_PROFILE_FILE</code> and
+<code>SIMCTL_CHILD_LLVM_PROFILE_FILE</code> which both point to the data path of
+their respective app containers.</p>
+<p>I have spent a lot of time trying to get the <a rel="external" href="https://clang.llvm.org/docs/SourceBasedCodeCoverage.html#running-the-instrumented-program">incremental instrumentation
+(<code>%c</code>)</a>
+but have been unsuccessful. The work around for this is to add a notification
+handler for <code>UIApplicationDidEnterBackgroundNotification</code> to call
+<code>__llvm_profile_write_file</code>. This is pretty hacky but when the app is
+backgrounded, it writes the profile file to <code>LLVM_PROFILE_FILE</code>.</p>
+<pre class="giallo" style="color: #D5CED9; background-color: #23262E;"><code data-lang="rust"><span class="giallo-l"><span style="color: #C74DED;">fn</span><span style="color: #FFE66D;"> set_llvm_profile_write</span><span>() {</span></span>
+<span class="giallo-l"><span style="color: #C74DED;">    if</span><span> std</span><span style="color: #EE5D43;">::</span><span>env</span><span style="color: #EE5D43;">::</span><span style="color: #FFE66D;">var</span><span>(</span><span style="color: #96E072;">&quot;LLVM_PROFILE_FILE&quot;</span><span>)</span><span style="color: #EE5D43;">.</span><span style="color: #FFE66D;">is_ok</span><span>() {</span></span>
+<span class="giallo-l"><span style="color: #C74DED;">        let</span><span style="color: #00E8C6;"> _will_terminate_observer</span><span style="color: #EE5D43;"> =</span><span style="color: #FFE66D;"> create_observer</span><span>(</span></span>
+<span class="giallo-l"><span style="color: #EE5D43;">            &amp;</span><span>objc2_foundation</span><span style="color: #EE5D43;">::</span><span>NSNotificationCenter</span><span style="color: #EE5D43;">::</span><span style="color: #FFE66D;">defaultCenter</span><span>(),</span></span>
+<span class="giallo-l"><span style="color: #C74DED;">            unsafe</span><span> { objc2_ui_kit</span><span style="color: #EE5D43;">::</span><span style="color: #FFE66D;">UIApplicationDidEnterBackgroundNotification</span><span> },</span></span>
+<span class="giallo-l"><span style="color: #C74DED;">            move</span><span style="color: #EE5D43;"> |</span><span style="color: #00E8C6;">_notification</span><span style="color: #EE5D43;">|</span><span> {</span></span>
+<span class="giallo-l"><span style="color: #C74DED;">                unsafe extern</span><span style="color: #96E072;"> &quot;C&quot;</span><span> {</span></span>
+<span class="giallo-l"><span style="color: #00E8C6;">                    safe</span><span style="color: #C74DED;"> fn</span><span style="color: #FFE66D;"> __llvm_profile_write_file</span><span>()</span><span style="color: #EE5D43;"> -&gt;</span><span> std</span><span style="color: #EE5D43;">::</span><span>ffi</span><span style="color: #EE5D43;">::</span><span style="color: #00E8C6;">c_int</span><span>;</span></span>
+<span class="giallo-l"><span>                }</span></span>
+<span class="giallo-l"><span style="color: #C74DED;">                let</span><span style="color: #00E8C6;"> res</span><span style="color: #EE5D43;"> =</span><span style="color: #FFE66D;"> __llvm_profile_write_file</span><span>();</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">                assert_eq!</span><span>(</span><span style="color: #00E8C6;">res</span><span>,</span><span style="color: #F39C12;"> 0</span><span>);</span></span>
+<span class="giallo-l"><span>            },</span></span>
+<span class="giallo-l"><span>        );</span></span>
+<span class="giallo-l"><span>    }</span></span>
+<span class="giallo-l"><span>}</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #C74DED;">fn</span><span style="color: #FFE66D;"> create_observer</span><span>(</span></span>
+<span class="giallo-l"><span style="color: #00E8C6;">    center</span><span style="color: #EE5D43;">: &amp;</span><span>objc2_foundation</span><span style="color: #EE5D43;">::</span><span style="color: #FFE66D;">NSNotificationCenter</span><span>,</span></span>
+<span class="giallo-l"><span style="color: #00E8C6;">    name</span><span style="color: #EE5D43;">: &amp;</span><span>objc2_foundation</span><span style="color: #EE5D43;">::</span><span style="color: #FFE66D;">NSNotificationName</span><span>,</span></span>
+<span class="giallo-l"><span style="color: #00E8C6;">    handler</span><span style="color: #EE5D43;">:</span><span style="color: #C74DED;"> impl</span><span style="color: #FFE66D;"> Fn</span><span>(</span><span style="color: #EE5D43;">&amp;</span><span>objc2_foundation</span><span style="color: #EE5D43;">::</span><span style="color: #FFE66D;">NSNotification</span><span>)</span><span style="color: #EE5D43;"> +</span><span> &#39;</span><span style="color: #FFE66D;">static</span><span>,</span></span>
+<span class="giallo-l"><span>)</span><span style="color: #EE5D43;"> -&gt;</span><span> objc2</span><span style="color: #EE5D43;">::</span><span>rc</span><span style="color: #EE5D43;">::</span><span style="color: #FFE66D;">Retained</span><span>&lt;</span><span style="color: #00E8C6;">objc2</span><span style="color: #EE5D43;">::</span><span style="color: #00E8C6;">runtime</span><span style="color: #EE5D43;">::</span><span style="color: #FFE66D;">ProtocolObject</span><span>&lt;</span><span style="color: #C74DED;">dyn</span><span style="color: #00E8C6;"> objc2_foundation</span><span style="color: #EE5D43;">::</span><span style="color: #FFE66D;">NSObjectProtocol</span><span>&gt;&gt; {</span></span>
+<span class="giallo-l"><span style="color: #C74DED;">    let</span><span style="color: #00E8C6;"> block</span><span style="color: #EE5D43;"> =</span><span> block2</span><span style="color: #EE5D43;">::</span><span style="color: #FFE66D;">RcBlock</span><span style="color: #EE5D43;">::</span><span style="color: #FFE66D;">new</span><span>(</span></span>
+<span class="giallo-l"><span style="color: #C74DED;">        move</span><span style="color: #EE5D43;"> |</span><span style="color: #00E8C6;">notification</span><span style="color: #EE5D43;">:</span><span> std</span><span style="color: #EE5D43;">::</span><span>ptr</span><span style="color: #EE5D43;">::</span><span style="color: #FFE66D;">NonNull</span><span>&lt;</span><span style="color: #00E8C6;">objc2_foundation</span><span style="color: #EE5D43;">::</span><span style="color: #FFE66D;">NSNotification</span><span>&gt;</span><span style="color: #EE5D43;">|</span><span> {</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">            handler</span><span>(</span><span style="color: #C74DED;">unsafe</span><span> {</span><span style="color: #00E8C6;"> notification</span><span style="color: #EE5D43;">.</span><span style="color: #FFE66D;">as_ref</span><span>() });</span></span>
+<span class="giallo-l"><span>        },</span></span>
+<span class="giallo-l"><span>    );</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #C74DED;">    unsafe</span><span> {</span><span style="color: #00E8C6;"> center</span><span style="color: #EE5D43;">.</span><span style="color: #FFE66D;">addObserverForName_object_queue_usingBlock</span><span>(</span><span style="color: #FFE66D;">Some</span><span>(</span><span style="color: #00E8C6;">name</span><span>),</span><span style="color: #FFE66D;"> None</span><span>,</span><span style="color: #FFE66D;"> None</span><span>,</span><span style="color: #EE5D43;"> &amp;</span><span style="color: #00E8C6;">block</span><span>) }</span></span>
+<span class="giallo-l"><span>}</span></span></code></pre>
+<p>With that in mind, we can make the <code>ui-tests-cov</code> just depend on <code>ui-tests-run</code>.</p>
+<pre class="giallo" style="color: #D5CED9; background-color: #23262E;"><code data-lang="make"><span class="giallo-l"><span style="color: #00E8C6;">LLVM_PROFDATA</span><span>=</span><span style="color: #96E072;">$(</span><span style="color: #FFE66D;">shell</span><span style="color: #96E072;"> rustc --print sysroot)</span><span>/lib/rustlib/aarch64-apple-darwin/bin/llvm-profdata</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #00E8C6;">COV_IGNORE_LIST</span><span>=--ignore-filename-regex=&#39;/.cargo/registry&#39; --ignore-filename-regex=&#39;/.rustup&#39; --ignore-filename-regex=&#39;/objc2&#39;</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #00E8C6;">COV_REPORT</span><span>=</span><span style="color: #96E072;">$(</span><span style="color: #00E8C6;">LLVM_COV</span><span style="color: #96E072;">)</span><span> report -Xdemangler=rustfilt --use-color   </span><span style="color: #96E072;">$(</span><span style="color: #00E8C6;">COV_IGNORE_LIST</span><span style="color: #96E072;">)</span><span> -instr-profile</span></span>
+<span class="giallo-l"><span style="color: #00E8C6;">COV_EXPORT</span><span>=</span><span style="color: #96E072;">$(</span><span style="color: #00E8C6;">LLVM_COV</span><span style="color: #96E072;">)</span><span> export -Xdemangler=rustfilt --format lcov </span><span style="color: #96E072;">$(</span><span style="color: #00E8C6;">COV_IGNORE_LIST</span><span style="color: #96E072;">)</span><span> -instr-profile</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #FFE66D;">ui-tests-cov</span><span>: ui-tests-run</span></span>
+<span class="giallo-l"><span>	mkdir -p target/cov</span></span>
+<span class="giallo-l"><span>	cp &quot;</span><span style="color: #96E072;">$(</span><span style="color: #00E8C6;">XCTEST_CONTAINER</span><span style="color: #96E072;">)</span><span>/Documents/xctrunner.profraw&quot; ./target/cov/xctrunner.profraw</span></span>
+<span class="giallo-l"><span>	cp &quot;</span><span style="color: #96E072;">$(</span><span style="color: #00E8C6;">DINGHY_CONTAINER</span><span style="color: #96E072;">)</span><span>/Documents/dinghy.profraw&quot; ./target/cov/dinghy.profraw</span></span>
+<span class="giallo-l"><span>	du -hs ./target/cov/*.profraw</span></span>
+<span class="giallo-l"><span style="color: #96E072;">	$(</span><span style="color: #00E8C6;">LLVM_PROFDATA</span><span style="color: #96E072;">)</span><span>  merge -sparse ./target/cov/xctrunner.profraw -o ./target/cov/xctrunner.profdata</span></span>
+<span class="giallo-l"><span style="color: #96E072;">	$(</span><span style="color: #00E8C6;">LLVM_PROFDATA</span><span style="color: #96E072;">)</span><span>  merge -sparse    ./target/cov/dinghy.profraw -o ./target/cov/dinghy.profdata</span></span>
+<span class="giallo-l"><span style="color: #96E072;">	$(</span><span style="color: #00E8C6;">COV_REPORT</span><span style="color: #96E072;">)</span><span> ./target/cov/xctrunner.profdata ./target/aarch64-apple-ios-sim/debug/ui_tests</span></span>
+<span class="giallo-l"><span style="color: #96E072;">	$(</span><span style="color: #00E8C6;">COV_REPORT</span><span style="color: #96E072;">)</span><span> ./target/cov/dinghy.profdata    ./target/aarch64-apple-ios-sim/debug/use-objc2-xc-ui-automation</span></span>
+<span class="giallo-l"><span style="color: #96E072;">	$(</span><span style="color: #00E8C6;">COV_EXPORT</span><span style="color: #96E072;">)</span><span> ./target/cov/xctrunner.profdata ./target/aarch64-apple-ios-sim/debug/ui_tests        &gt; ./target/cov/xctrunner-lcov.info</span></span>
+<span class="giallo-l"><span style="color: #96E072;">	$(</span><span style="color: #00E8C6;">COV_EXPORT</span><span style="color: #96E072;">)</span><span> ./target/cov/dinghy.profdata    ./target/aarch64-apple-ios-sim/debug/use-objc2-xc-ui-automation &gt; ./target/cov/dinghy-lcov.info</span></span>
+<span class="giallo-l"><span>	genhtml ./target/cov/dinghy-lcov.info ./target/cov/xctrunner-lcov.info -o ./target/cov/</span></span></code></pre>
+<p>Assuming you've got the <code>genhtml</code> installed, this will generate a coverage
+report html in <code>target/cov/index.html</code>.</p>
+<h2 id="build-rs">build.rs<a class="zola-anchor" href="#build-rs" aria-label="Anchor link for: build-rs">§</a>
+</h2>
+<p>The <code>build.rs</code> is something you'll probably copy from somewhere else (just like
+I did). Notably you need to a to have it link against the testing
+frameworks. Also because this requires the <code>ui_tests</code> to be in it's own crate
+in the workspace.</p>
+<pre class="giallo" style="color: #D5CED9; background-color: #23262E;"><code data-lang="rust"><span class="giallo-l"><span style="color: #A0A1A7CC;">//! Allow linking to XCTest in the fashion that it expects.</span></span>
+<span class="giallo-l"><span style="color: #C74DED;">use</span><span> std</span><span style="color: #EE5D43;">::</span><span>env;</span></span>
+<span class="giallo-l"><span style="color: #C74DED;">use</span><span> std</span><span style="color: #EE5D43;">::</span><span>process</span><span style="color: #EE5D43;">::</span><span style="color: #FFE66D;">Command</span><span>;</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #C74DED;">fn</span><span style="color: #FFE66D;"> xcode_select_developer_dir</span><span>()</span><span style="color: #EE5D43;"> -&gt;</span><span style="color: #FFE66D;"> Option</span><span>&lt;</span><span style="color: #FFE66D;">String</span><span>&gt; {</span></span>
+<span class="giallo-l"><span style="color: #C74DED;">    let</span><span style="color: #00E8C6;"> output</span><span style="color: #EE5D43;"> =</span><span style="color: #FFE66D;"> Command</span><span style="color: #EE5D43;">::</span><span style="color: #FFE66D;">new</span><span>(</span><span style="color: #96E072;">&quot;xcode-select&quot;</span><span>)</span></span>
+<span class="giallo-l"><span style="color: #EE5D43;">        .</span><span style="color: #FFE66D;">arg</span><span>(</span><span style="color: #96E072;">&quot;--print-path&quot;</span><span>)</span></span>
+<span class="giallo-l"><span style="color: #EE5D43;">        .</span><span style="color: #FFE66D;">output</span><span>()</span></span>
+<span class="giallo-l"><span style="color: #EE5D43;">        .</span><span style="color: #FFE66D;">ok</span><span>()</span><span style="color: #EE5D43;">?</span><span>;</span></span>
+<span class="giallo-l"><span style="color: #C74DED;">    if</span><span style="color: #EE5D43;"> !</span><span style="color: #00E8C6;">output</span><span style="color: #EE5D43;">.</span><span>status</span><span style="color: #EE5D43;">.</span><span style="color: #FFE66D;">success</span><span>() {</span></span>
+<span class="giallo-l"><span style="color: #C74DED;">        return</span><span style="color: #FFE66D;"> None</span><span>;</span></span>
+<span class="giallo-l"><span>    }</span></span>
+<span class="giallo-l"><span style="color: #C74DED;">    let mut</span><span style="color: #00E8C6;"> stdout</span><span style="color: #EE5D43;"> =</span><span style="color: #00E8C6;"> output</span><span style="color: #EE5D43;">.</span><span>stdout;</span></span>
+<span class="giallo-l"><span style="color: #C74DED;">    if let</span><span style="color: #FFE66D;"> Some</span><span>(</span><span style="color: #96E072;">b&#39;</span><span style="color: #EE5D43;">\n</span><span style="color: #96E072;">&#39;</span><span>)</span><span style="color: #EE5D43;"> =</span><span style="color: #00E8C6;"> stdout</span><span style="color: #EE5D43;">.</span><span style="color: #FFE66D;">last</span><span>() {</span></span>
+<span class="giallo-l"><span style="color: #C74DED;">        let</span><span style="color: #00E8C6;"> _</span><span style="color: #EE5D43;"> =</span><span style="color: #00E8C6;"> stdout</span><span style="color: #EE5D43;">.</span><span style="color: #FFE66D;">pop</span><span>()</span><span style="color: #EE5D43;">.</span><span style="color: #FFE66D;">unwrap</span><span>();</span></span>
+<span class="giallo-l"><span>    }</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">    Some</span><span>(</span><span style="color: #FFE66D;">String</span><span style="color: #EE5D43;">::</span><span style="color: #FFE66D;">from_utf8</span><span>(</span><span style="color: #00E8C6;">stdout</span><span>)</span><span style="color: #EE5D43;">.</span><span style="color: #FFE66D;">unwrap</span><span>())</span></span>
+<span class="giallo-l"><span>}</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #C74DED;">fn</span><span style="color: #FFE66D;"> main</span><span>() {</span></span>
+<span class="giallo-l"><span style="color: #A0A1A7CC;">    // The script doesn&#39;t depend on our code</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">    println!</span><span>(</span><span style="color: #96E072;">&quot;cargo:rerun-if-changed=build.rs&quot;</span><span>);</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #C74DED;">    let</span><span style="color: #00E8C6;"> developer_dir</span><span style="color: #EE5D43;"> =</span><span style="color: #FFE66D;"> xcode_select_developer_dir</span><span>();</span></span>
+<span class="giallo-l"><span style="color: #C74DED;">    let</span><span style="color: #00E8C6;"> developer_dir</span><span style="color: #EE5D43;"> =</span><span style="color: #00E8C6;"> developer_dir</span></span>
+<span class="giallo-l"><span style="color: #EE5D43;">        .</span><span style="color: #FFE66D;">as_deref</span><span>()</span></span>
+<span class="giallo-l"><span style="color: #EE5D43;">        .</span><span style="color: #FFE66D;">unwrap_or</span><span>(</span><span style="color: #96E072;">&quot;/Applications/Xcode.app/Contents/Developer&quot;</span><span>);</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #C74DED;">    let</span><span style="color: #00E8C6;"> os</span><span style="color: #EE5D43;"> =</span><span> env</span><span style="color: #EE5D43;">::</span><span style="color: #FFE66D;">var</span><span>(</span><span style="color: #96E072;">&quot;CARGO_CFG_TARGET_OS&quot;</span><span>)</span><span style="color: #EE5D43;">.</span><span style="color: #FFE66D;">unwrap</span><span>();</span></span>
+<span class="giallo-l"><span style="color: #C74DED;">    let</span><span style="color: #00E8C6;"> abi</span><span style="color: #EE5D43;"> =</span><span> env</span><span style="color: #EE5D43;">::</span><span style="color: #FFE66D;">var</span><span>(</span><span style="color: #96E072;">&quot;CARGO_CFG_TARGET_ABI&quot;</span><span>);</span></span>
+<span class="giallo-l"><span style="color: #C74DED;">    let</span><span style="color: #00E8C6;"> abi</span><span style="color: #EE5D43;"> =</span><span style="color: #00E8C6;"> abi</span><span style="color: #EE5D43;">.</span><span style="color: #FFE66D;">as_deref</span><span>()</span><span style="color: #EE5D43;">.</span><span style="color: #FFE66D;">unwrap_or</span><span>(</span><span style="color: #96E072;">&quot;&quot;</span><span>);</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #C74DED;">    let</span><span style="color: #00E8C6;"> sdk_name</span><span style="color: #EE5D43;"> =</span><span style="color: #C74DED;"> match</span><span> (</span><span style="color: #EE5D43;">&amp;*</span><span style="color: #00E8C6;">os</span><span>,</span><span style="color: #00E8C6;"> abi</span><span>) {</span></span>
+<span class="giallo-l"><span>        (</span><span style="color: #96E072;">&quot;macos&quot;</span><span>,</span><span style="color: #96E072;"> &quot;&quot;</span><span>)</span><span style="color: #EE5D43;"> =&gt;</span><span style="color: #96E072;"> &quot;MacOSX&quot;</span><span>,</span></span>
+<span class="giallo-l"><span>        (</span><span style="color: #96E072;">&quot;ios&quot;</span><span>,</span><span style="color: #96E072;"> &quot;&quot;</span><span>)</span><span style="color: #EE5D43;"> =&gt;</span><span style="color: #96E072;"> &quot;iPhoneOS&quot;</span><span>,</span></span>
+<span class="giallo-l"><span>        (</span><span style="color: #96E072;">&quot;ios&quot;</span><span>,</span><span style="color: #96E072;"> &quot;sim&quot;</span><span>)</span><span style="color: #EE5D43;"> =&gt;</span><span style="color: #96E072;"> &quot;iPhoneSimulator&quot;</span><span>,</span></span>
+<span class="giallo-l"><span style="color: #A0A1A7CC;">        // Mac Catalyst uses the macOS SDK</span></span>
+<span class="giallo-l"><span>        (</span><span style="color: #96E072;">&quot;ios&quot;</span><span>,</span><span style="color: #96E072;"> &quot;macabi&quot;</span><span>)</span><span style="color: #EE5D43;"> =&gt;</span><span style="color: #96E072;"> &quot;MacOSX&quot;</span><span>,</span></span>
+<span class="giallo-l"><span>        (</span><span style="color: #96E072;">&quot;tvos&quot;</span><span>,</span><span style="color: #96E072;"> &quot;&quot;</span><span>)</span><span style="color: #EE5D43;"> =&gt;</span><span style="color: #96E072;"> &quot;AppleTVOS&quot;</span><span>,</span></span>
+<span class="giallo-l"><span>        (</span><span style="color: #96E072;">&quot;tvos&quot;</span><span>,</span><span style="color: #96E072;"> &quot;sim&quot;</span><span>)</span><span style="color: #EE5D43;"> =&gt;</span><span style="color: #96E072;"> &quot;AppleTVSimulator&quot;</span><span>,</span></span>
+<span class="giallo-l"><span>        (</span><span style="color: #96E072;">&quot;visionos&quot;</span><span>,</span><span style="color: #96E072;"> &quot;&quot;</span><span>)</span><span style="color: #EE5D43;"> =&gt;</span><span style="color: #96E072;"> &quot;XROS&quot;</span><span>,</span></span>
+<span class="giallo-l"><span>        (</span><span style="color: #96E072;">&quot;visionos&quot;</span><span>,</span><span style="color: #96E072;"> &quot;sim&quot;</span><span>)</span><span style="color: #EE5D43;"> =&gt;</span><span style="color: #96E072;"> &quot;XRSimulator&quot;</span><span>,</span></span>
+<span class="giallo-l"><span>        (</span><span style="color: #96E072;">&quot;watchos&quot;</span><span>,</span><span style="color: #96E072;"> &quot;&quot;</span><span>)</span><span style="color: #EE5D43;"> =&gt;</span><span style="color: #96E072;"> &quot;WatchOS&quot;</span><span>,</span></span>
+<span class="giallo-l"><span>        (</span><span style="color: #96E072;">&quot;watchos&quot;</span><span>,</span><span style="color: #96E072;"> &quot;sim&quot;</span><span>)</span><span style="color: #EE5D43;"> =&gt;</span><span style="color: #96E072;"> &quot;WatchSimulator&quot;</span><span>,</span></span>
+<span class="giallo-l"><span>        (</span><span style="color: #00E8C6;">os</span><span>,</span><span style="color: #00E8C6;"> abi</span><span>)</span><span style="color: #EE5D43;"> =&gt;</span><span style="color: #FFE66D;"> unreachable!</span><span>(</span><span style="color: #96E072;">&quot;invalid os &#39;</span><span style="color: #F92672;">{</span><span style="color: #96E072;">os</span><span style="color: #F92672;">}</span><span style="color: #96E072;">&#39; / abi &#39;</span><span style="color: #F92672;">{</span><span style="color: #96E072;">abi</span><span style="color: #F92672;">}</span><span style="color: #96E072;">&#39; combination for Apple target&quot;</span><span>),</span></span>
+<span class="giallo-l"><span>    };</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #A0A1A7CC;">    // XCTest and XCUIAutomation live inside:</span></span>
+<span class="giallo-l"><span style="color: #A0A1A7CC;">    // `/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks`</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">    println!</span><span>(</span></span>
+<span class="giallo-l"><span style="color: #96E072;">        &quot;cargo:rustc-link-search=framework=</span><span style="color: #F92672;">{</span><span style="color: #96E072;">developer_dir</span><span style="color: #F92672;">}</span><span style="color: #96E072;">/Platforms/</span><span style="color: #F92672;">{</span><span style="color: #96E072;">sdk_name</span><span style="color: #F92672;">}</span><span style="color: #96E072;">.platform/Developer/Library/Frameworks&quot;</span></span>
+<span class="giallo-l"><span>    );</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">    println!</span><span>(</span></span>
+<span class="giallo-l"><span style="color: #96E072;">        &quot;cargo:rustc-link-search=native=</span><span style="color: #F92672;">{</span><span style="color: #96E072;">developer_dir</span><span style="color: #F92672;">}</span><span style="color: #96E072;">/Platforms/</span><span style="color: #F92672;">{</span><span style="color: #96E072;">sdk_name</span><span style="color: #F92672;">}</span><span style="color: #96E072;">.platform/Developer/usr/lib&quot;</span></span>
+<span class="giallo-l"><span>    );</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #A0A1A7CC;">    // Configure the test binary as a bundle instead.</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">    println!</span><span>(</span><span style="color: #96E072;">&quot;cargo:rustc-link-arg-bins=-bundle&quot;</span><span>);</span></span>
+<span class="giallo-l"><span style="color: #A0A1A7CC;">    // + #![no_main] and #[ctor]</span></span>
+<span class="giallo-l"><span style="color: #A0A1A7CC;">    // + maybe -bundle_loader app_under_test?</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #A0A1A7CC;">    // TODO: Are these necessary?</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">    println!</span><span>(</span><span style="color: #96E072;">&quot;cargo:rustc-link-arg-bins=-Xlinker&quot;</span><span>);</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">    println!</span><span>(</span><span style="color: #96E072;">&quot;cargo:rustc-link-arg-bins=-debug_variant&quot;</span><span>);</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">    println!</span><span>(</span><span style="color: #96E072;">&quot;cargo:rustc-link-arg-bins=-Xlinker&quot;</span><span>);</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">    println!</span><span>(</span><span style="color: #96E072;">&quot;cargo:rustc-link-arg-bins=-export_dynamic&quot;</span><span>);</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">    println!</span><span>(</span><span style="color: #96E072;">&quot;cargo:rustc-link-arg-bins=-Xlinker&quot;</span><span>);</span></span>
+<span class="giallo-l"><span style="color: #FFE66D;">    println!</span><span>(</span><span style="color: #96E072;">&quot;cargo:rustc-link-arg-bins=-no_deduplicate&quot;</span><span>);</span></span>
+<span class="giallo-l"><span>}</span></span></code></pre><h1 id="caveats">Caveats<a class="zola-anchor" href="#caveats" aria-label="Anchor link for: caveats">§</a>
+</h1>
+<p>Getting the exit status of any running iOS app is not a simple task.
+<a rel="external" href="https://github.com/sonos/dinghy/"><code>cargo-dinghy</code></a> gets the exit status by
+spawning the application in debug mode, attaching and running the process via
+the debugger. This has been described as "more or less cursed". For this
+reason, I suggest the hack of copying the screenshot(s) out of the XCTest app's
+data directory. If the <code>cp</code> fails, the tests have failed.</p>
+<p>I got the <code>xctestconfiguration</code> by creating an Xcode project and a little bit
+of reverse engineering throwing in the App's ID and the container path.</p>
+<h1 id="closing-thoughts">Closing thoughts<a class="zola-anchor" href="#closing-thoughts" aria-label="Anchor link for: closing-thoughts">§</a>
+</h1>
+<p>This is a pretty brittle setup and I'm not sure I suggest it in production. One
+can't get the exit status easily, getting this to run on a device is still
+quite unclear - How do I get the data container on device?.</p>
+<p>Once setup, I find the TUI interface for development a lot nicer in general.
+The <code>xcodebuild</code> tooling is just a bit worse than a set of make lines. It
+should be noted that <code>Xcode</code> isn't needed to be open for this at all.</p>
+<p>The other cool thing about this setup is that one can run XCTests against an
+app that's not in the same project. I actually spent a lot of time trying to
+write automation tests against Safari in the simulator (it did not work).</p>
+<p>Shout out to <a rel="external" href="https://github.com/madsmtm/">mads</a> for doing great work on all
+the things in <code>objc2</code>.</p>
+
+
+        
+    
+
+        
+        
+    </article></div>
+    <div class="pagination">
+        <div class="pagination__buttons">
+            </div>
+    </div>
+<footer class="footer">
+                    <div class="footer__inner"><div class="copyright">
+            <span>© 2026 :: Powered by <a href="https://www.getzola.org/">Zola</a></span>
+        </div>
+    <script type="text/javascript" src="https://simlay.net/assets/js/main.js"></script>
+</div>
+                    
+
+                </footer></div>
+        <script data-goatcounter="https://simlay.goatcounter.com/count" async src="//gc.zgo.at/count.js"></script><a rel="me" href="https:&#x2F;&#x2F;hachyderm.io&#x2F;@simlay" /></body>
+</html>

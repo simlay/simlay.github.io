@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+    <title>Using bindgen to generate Rust bindings for Objective-c - Sebastian Imlay</title>
+    
+    
+    <meta http-equiv="content-type" content="text/html; charset=utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1"><meta name="description" content="The home of simlay.net Using bindgen to generate Rust bindings for Objective-c This is a tutorial how to build uikit-sys using bindgen and how to avoid some of the pitfalls of generating objective-c bindings."/>
+    <meta property="og:title" content="simlay -&nbsp;Using bindgen to generate Rust bindings for Objective-c" />
+    <meta property="og:type" content="website"/><meta property="og:url" content="https:&#x2F;&#x2F;simlay.net&#x2F;posts&#x2F;rust-bindgen-objc-support&#x2F;"/><meta property="og:description" content="This is a tutorial how to build uikit-sys using bindgen and how to avoid some of the pitfalls of generating objective-c bindings."/><meta property="og:image" content="https://simlay.net/simlay.png"/>
+    <link rel="preload" href="https://simlay.net/assets/fonts/FiraCode-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+    <link rel="preload" href="https://simlay.net/assets/fonts/FiraCode-Bold.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+
+    <link rel="stylesheet" href="https://simlay.net/style.css?h=97e262212a0704163528">
+    <link rel="stylesheet" href="https://simlay.net/color/blue.css?h=43198b832df0f2b5f2cf">
+<!-- Google Analytics -->
+        <script async src="https://www.googletagmanager.com/gtag/js?id=UA-44653605-1"></script>
+        <script>
+            window.dataLayer = window.dataLayer || [];
+            function gtag(){dataLayer.push(arguments);}
+            gtag('js', new Date());
+            gtag('config', 'UA-44653605-1');
+        </script>
+    </head>
+    <body>
+        <div class="container">
+<header class="header">
+    <div class="header__inner">
+        <div class="header__logo">
+            <a href="https:&#x2F;&#x2F;simlay.net">
+    <div class="logo">
+        simlay
+    </div>
+</a>
+        </div>
+        <div class="menu-trigger">menu</div>
+    </div>
+    
+    <nav class="menu">
+        <ul class="menu__inner menu__inner--desktop">
+            
+            
+        <li>
+            <a href="
+    
+        https://simlay.net/me
+    
+">me</a>
+        </li></ul>
+
+        <ul class="menu__inner menu__inner--mobile">
+            
+        <li>
+            <a href="
+    
+        https://simlay.net/me
+    
+">me</a>
+        </li>
+        </ul>
+    </nav>
+
+    </header>
+<div class="content"><article class="post">
+        <header>
+            <h1 class="post-title">
+                <a href="https:&#x2F;&#x2F;simlay.net&#x2F;posts&#x2F;rust-bindgen-objc-support&#x2F;">Using bindgen to generate Rust bindings for Objective-c</a>
+            </h1>
+            
+    <div class="post-meta">
+        <span class="post-date">2020.08.14
+                </span>
+
+        <span class="post-author"></span>
+
+        
+
+    
+    </div>
+
+            
+    
+</header><h1 id="introduction">Introduction<a class="zola-anchor" href="#introduction" aria-label="Anchor link for: introduction">§</a>
+</h1>
+<p>This is a tutorial how to build
+<a rel="external" href="https://github.com/simlay/uikit-sys">uikit-sys</a> using <a rel="external" href="https://github.com/rust-lang/rust-bindgen">bindgen</a> and how to avoid some of the
+pitfalls of generating objective-c bindings.</p>
+<p>I got into this rather niche topic because I used to work on a react-native app
+and found the build system to be too fragile and wanted to have some of the
+stability that rust offers. I spent a little bit of time looking at
+<a rel="external" href="https://github.com/SSheldon/rust-uikit">SSheldon/rust-uikit</a> but it became
+clear that this would rather manual and still rather brittle. So, I stumbled upon the mild objective-c support in rust-bindgen and
+have been <a rel="external" href="https://github.com/rust-lang/rust-bindgen/pulls?q=is%3Apr+author%3Asimlay">adding more features since</a>.</p>
+<p>Usage of the uikit-sys crate will be saved for another post.</p>
+<h1 id="setting-up-the-project">Setting up the project<a class="zola-anchor" href="#setting-up-the-project" aria-label="Anchor link for: setting-up-the-project">§</a>
+</h1>
+<p>First off, you'll need to <code>cargo new --lib uikit-sys</code>. In your <code>Cargo.toml</code>, you'll need:</p>
+<pre class="giallo" style="color: #D5CED9; background-color: #23262E;"><code data-lang="toml"><span class="giallo-l"><span>[dependencies]</span></span>
+<span class="giallo-l"><span style="color: #00E8C6;">objc</span><span> =</span><span style="color: #96E072;"> &quot;*&quot;</span></span>
+<span class="giallo-l"><span style="color: #00E8C6;">block</span><span> =</span><span style="color: #96E072;"> &quot;*&quot;</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>[build-dependencies]</span></span>
+<span class="giallo-l"><span style="color: #00E8C6;">bindgen</span><span> =</span><span style="color: #96E072;"> &quot;*&quot;</span></span></code></pre>
+<p>But you should probably set the versions so that this is a more stable package.</p>
+<p>Your <code>src/lib.rs</code> really only needs:</p>
+<pre class="giallo" style="color: #D5CED9; background-color: #23262E;"><code data-lang="rust"><span class="giallo-l"><span style="color: #FFE66D;">include!</span><span>(</span><span style="color: #FFE66D;">concat!</span><span>(</span><span style="color: #FFE66D;">env!</span><span>(</span><span style="color: #96E072;">&quot;OUT_DIR&quot;</span><span>),</span><span style="color: #96E072;"> &quot;/uikit.rs&quot;</span><span>));</span></span></code></pre>
+<p>but you probably don't neeed <code>rustc</code> telling you all about the
+non-{snake,camel,upper-case-glabals} you should do:</p>
+<pre class="giallo" style="color: #D5CED9; background-color: #23262E;"><code data-lang="rust"><span class="giallo-l"><span>#![allow(non_camel_case_types)]</span></span>
+<span class="giallo-l"><span>#![allow(non_snake_case)]</span></span>
+<span class="giallo-l"><span>#![allow(non_upper_case_globals)]</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #FFE66D;">include!</span><span>(</span><span style="color: #FFE66D;">concat!</span><span>(</span><span style="color: #FFE66D;">env!</span><span>(</span><span style="color: #96E072;">&quot;OUT_DIR&quot;</span><span>),</span><span style="color: #96E072;"> &quot;/uikit.rs&quot;</span><span>));</span></span></code></pre>
+<p>If you're unfamiliar, <code>include!(concat!(env!("OUT_DIR"), "file-name.rs"))</code> is a
+pretty <a rel="external" href="https://doc.rust-lang.org/cargo/reference/build-script-examples.html">common pattern for cargo build
+scripts</a>.</p>
+<h1 id="adding-a-build-rs">Adding a build.rs<a class="zola-anchor" href="#adding-a-build-rs" aria-label="Anchor link for: adding-a-build-rs">§</a>
+</h1>
+<p>Now, on to the <code>build.rs</code>:</p>
+<pre class="giallo" style="color: #D5CED9; background-color: #23262E;"><code data-lang="rust"><span class="giallo-l"><span style="color: #C74DED;">use</span><span> std</span><span style="color: #EE5D43;">::</span><span>env;</span></span>
+<span class="giallo-l"><span style="color: #C74DED;">use</span><span> std</span><span style="color: #EE5D43;">::</span><span>path</span><span style="color: #EE5D43;">::</span><span style="color: #FFE66D;">Path</span><span>;</span></span>
+<span class="giallo-l"><span style="color: #C74DED;">fn</span><span style="color: #FFE66D;"> main</span><span>() {</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #C74DED;">    let</span><span style="color: #00E8C6;"> target</span><span style="color: #EE5D43;"> =</span><span> std</span><span style="color: #EE5D43;">::</span><span>env</span><span style="color: #EE5D43;">::</span><span style="color: #FFE66D;">var</span><span>(</span><span style="color: #96E072;">&quot;TARGET&quot;</span><span>)</span><span style="color: #EE5D43;">.</span><span style="color: #FFE66D;">unwrap</span><span>();</span></span>
+<span class="giallo-l"><span style="color: #C74DED;">    let</span><span style="color: #00E8C6;"> target</span><span style="color: #EE5D43;"> =</span><span style="color: #C74DED;"> if</span><span style="color: #00E8C6;"> target</span><span style="color: #EE5D43;"> ==</span><span style="color: #96E072;"> &quot;aarch64-apple-ios&quot;</span><span> {</span></span>
+<span class="giallo-l"><span style="color: #96E072;">        &quot;arm64-apple-ios&quot;</span></span>
+<span class="giallo-l"><span>    }</span><span style="color: #C74DED;"> else</span><span> {</span></span>
+<span class="giallo-l"><span style="color: #EE5D43;">        &amp;</span><span style="color: #00E8C6;">target</span></span>
+<span class="giallo-l"><span>    };</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #C74DED;">    let</span><span style="color: #00E8C6;"> sdk_path</span><span style="color: #EE5D43;"> =</span><span style="color: #96E072;"> &quot;/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS13.6.sdk&quot;</span><span>;</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #FFE66D;">    println!</span><span>(</span><span style="color: #96E072;">&quot;cargo:rustc-link-lib=framework=UIKit&quot;</span><span>);</span></span>
+<span class="giallo-l"><span style="color: #C74DED;">    let</span><span style="color: #00E8C6;"> builder</span><span style="color: #EE5D43;"> =</span><span> bindgen</span><span style="color: #EE5D43;">::</span><span style="color: #FFE66D;">Builder</span><span style="color: #EE5D43;">::</span><span style="color: #FFE66D;">default</span><span>()</span></span>
+<span class="giallo-l"><span style="color: #EE5D43;">        .</span><span style="color: #FFE66D;">rustfmt_bindings</span><span>(</span><span style="color: #EE5D43;">true</span><span>)</span></span>
+<span class="giallo-l"><span style="color: #EE5D43;">        .</span><span style="color: #FFE66D;">header_contents</span><span>(</span><span style="color: #96E072;">&quot;UIKit.h&quot;</span><span>,</span><span style="color: #96E072;"> &quot;#include&lt;UIKit/UIKit.h&gt;&quot;</span><span>)</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #EE5D43;">        .</span><span style="color: #FFE66D;">clang_args</span><span>(</span><span style="color: #EE5D43;">&amp;</span><span>[</span><span style="color: #EE5D43;">&amp;</span><span style="color: #FFE66D;">format!</span><span>(</span><span style="color: #96E072;">&quot;--target=</span><span style="color: #F92672;">{}</span><span style="color: #96E072;">&quot;</span><span>,</span><span style="color: #00E8C6;"> target</span><span>)])</span></span>
+<span class="giallo-l"><span style="color: #EE5D43;">        .</span><span style="color: #FFE66D;">clang_args</span><span>(</span><span style="color: #EE5D43;">&amp;</span><span>[</span><span style="color: #96E072;">&quot;-isysroot&quot;</span><span>,</span><span style="color: #00E8C6;"> sdk_path</span><span>])</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #EE5D43;">        .</span><span style="color: #FFE66D;">block_extern_crate</span><span>(</span><span style="color: #EE5D43;">true</span><span>)</span></span>
+<span class="giallo-l"><span style="color: #EE5D43;">        .</span><span style="color: #FFE66D;">generate_block</span><span>(</span><span style="color: #EE5D43;">true</span><span>)</span></span>
+<span class="giallo-l"><span style="color: #EE5D43;">        .</span><span style="color: #FFE66D;">clang_args</span><span>(</span><span style="color: #EE5D43;">&amp;</span><span>[</span><span style="color: #96E072;">&quot;-fblocks&quot;</span><span>])</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #EE5D43;">        .</span><span style="color: #FFE66D;">objc_extern_crate</span><span>(</span><span style="color: #EE5D43;">true</span><span>)</span></span>
+<span class="giallo-l"><span style="color: #EE5D43;">        .</span><span style="color: #FFE66D;">clang_args</span><span>(</span><span style="color: #EE5D43;">&amp;</span><span>[</span><span style="color: #96E072;">&quot;-x&quot;</span><span>,</span><span style="color: #96E072;"> &quot;objective-c&quot;</span><span>])</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #EE5D43;">        .</span><span style="color: #FFE66D;">blacklist_item</span><span>(</span><span style="color: #96E072;">&quot;timezone&quot;</span><span>)</span></span>
+<span class="giallo-l"><span style="color: #EE5D43;">        .</span><span style="color: #FFE66D;">blacklist_item</span><span>(</span><span style="color: #96E072;">&quot;IUIStepper&quot;</span><span>)</span></span>
+<span class="giallo-l"><span style="color: #EE5D43;">        .</span><span style="color: #FFE66D;">blacklist_function</span><span>(</span><span style="color: #96E072;">&quot;dividerImageForLeftSegmentState_rightSegmentState_&quot;</span><span>)</span></span>
+<span class="giallo-l"><span style="color: #EE5D43;">        .</span><span style="color: #FFE66D;">blacklist_item</span><span>(</span><span style="color: #96E072;">&quot;objc_object&quot;</span><span>);</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #C74DED;">    let</span><span style="color: #00E8C6;"> bindings</span><span style="color: #EE5D43;"> =</span><span style="color: #00E8C6;"> builder</span><span style="color: #EE5D43;">.</span><span style="color: #FFE66D;">generate</span><span>()</span><span style="color: #EE5D43;">.</span><span style="color: #FFE66D;">expect</span><span>(</span><span style="color: #96E072;">&quot;unable to generate bindings&quot;</span><span>);</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #C74DED;">    let</span><span style="color: #00E8C6;"> out_dir</span><span style="color: #EE5D43;"> =</span><span> env</span><span style="color: #EE5D43;">::</span><span style="color: #FFE66D;">var_os</span><span>(</span><span style="color: #96E072;">&quot;OUT_DIR&quot;</span><span>)</span><span style="color: #EE5D43;">.</span><span style="color: #FFE66D;">unwrap</span><span>();</span></span>
+<span class="giallo-l"><span style="color: #00E8C6;">    bindings</span></span>
+<span class="giallo-l"><span style="color: #EE5D43;">        .</span><span style="color: #FFE66D;">write_to_file</span><span>(Path</span><span style="color: #EE5D43;">::</span><span style="color: #FFE66D;">new</span><span>(</span><span style="color: #EE5D43;">&amp;</span><span style="color: #00E8C6;">out_dir</span><span>)</span><span style="color: #EE5D43;">.</span><span style="color: #FFE66D;">join</span><span>(</span><span style="color: #96E072;">&quot;uikit.rs&quot;</span><span>))</span></span>
+<span class="giallo-l"><span style="color: #EE5D43;">        .</span><span style="color: #FFE66D;">expect</span><span>(</span><span style="color: #96E072;">&quot;could not write bindings&quot;</span><span>);</span></span>
+<span class="giallo-l"><span>}</span></span></code></pre>
+<p>This is an abridged version and it doesn't handle different iOS platforms due to the <code>sdk_path</code>. So, let's break this down.</p>
+<h2 id="getting-the-right-target">Getting the right target.<a class="zola-anchor" href="#getting-the-right-target" aria-label="Anchor link for: getting-the-right-target">§</a>
+</h2>
+<p>First off, Cargo has a few <a rel="external" href="https://doc.rust-lang.org/cargo/reference/environment-variables.html#environment-variables-cargo-sets-for-build-scripts">environment
+variables</a>
+such as <code>TARGET</code> and <code>OUT_DIR</code> and that's why</p>
+<pre class="giallo" style="color: #D5CED9; background-color: #23262E;"><code data-lang="rust"><span class="giallo-l"><span style="color: #C74DED;">let</span><span style="color: #00E8C6;"> target</span><span style="color: #EE5D43;"> =</span><span> std</span><span style="color: #EE5D43;">::</span><span>env</span><span style="color: #EE5D43;">::</span><span style="color: #FFE66D;">var</span><span>(</span><span style="color: #96E072;">&quot;TARGET&quot;</span><span>)</span><span style="color: #EE5D43;">.</span><span style="color: #FFE66D;">unwrap</span><span>();</span></span>
+<span class="giallo-l"><span style="color: #C74DED;">let</span><span style="color: #00E8C6;"> out_dir</span><span style="color: #EE5D43;"> =</span><span> env</span><span style="color: #EE5D43;">::</span><span style="color: #FFE66D;">var_os</span><span>(</span><span style="color: #96E072;">&quot;OUT_DIR&quot;</span><span>)</span><span style="color: #EE5D43;">.</span><span style="color: #FFE66D;">unwrap</span><span>();</span></span></code></pre>
+<p>are needed.</p>
+<p>Then we need to turn <code>arch64-apple-ios</code> into <code>arm64-apple-ios</code> because the
+clang triple doesn't match. Once
+<a rel="external" href="https://github.com/rust-lang/rust-bindgen/issues/1211">rust-lang/rust-bindgen#1211</a>
+is resolved, this bit won't be needed:</p>
+<pre class="giallo" style="color: #D5CED9; background-color: #23262E;"><code data-lang="rust"><span class="giallo-l"><span style="color: #C74DED;">let</span><span style="color: #00E8C6;"> target</span><span style="color: #EE5D43;"> =</span><span style="color: #C74DED;"> if</span><span style="color: #00E8C6;"> target</span><span style="color: #EE5D43;"> ==</span><span style="color: #96E072;"> &quot;aarch64-apple-ios&quot;</span><span> {</span></span>
+<span class="giallo-l"><span style="color: #96E072;">    &quot;arm64-apple-ios&quot;</span></span>
+<span class="giallo-l"><span>}</span><span style="color: #C74DED;"> else</span><span> {</span></span>
+<span class="giallo-l"><span style="color: #EE5D43;">    &amp;</span><span style="color: #00E8C6;">target</span></span>
+<span class="giallo-l"><span>};</span></span></code></pre><h2 id="getting-the-sysroot">Getting the sysroot<a class="zola-anchor" href="#getting-the-sysroot" aria-label="Anchor link for: getting-the-sysroot">§</a>
+</h2>
+<p>Following this, you'll notice that I've hard coded the <code>sdk_path</code>:</p>
+<pre class="giallo" style="color: #D5CED9; background-color: #23262E;"><code data-lang="rust"><span class="giallo-l"><span style="color: #C74DED;">let</span><span style="color: #00E8C6;"> sdk_path</span><span style="color: #EE5D43;"> =</span><span style="color: #96E072;"> &quot;/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS13.6.sdk&quot;</span><span>;</span></span></code></pre>
+<p>I'm taking a shortcut here for the purposes of brevity but this is effectively
+the command <code>xcrun --sdk iphoneos --show-sdk-path</code>. Doing this right, you
+should look at the <code>TARGET</code> triple, if it's prefixed with <code>x86_64</code>, use
+<code>iphonesimulator</code> rather than <code>iphoneos</code>. This should be done with
+<a rel="external" href="https://doc.rust-lang.org/std/process/struct.Command.html"><code>std::process::Command</code></a>
+in your build script because this path changes with the Xcode/iPhone SDK version.
+<a rel="external" href="https://github.com/simlay/uikit-sys/blob/1ee18440547de342aa2530d04d0dda82313fcc55/build.rs#L3-L25">This is I did it for
+uikit-sys</a>.</p>
+<p>This is then passed to the <code>clang_args</code> of bindgen to set the <a rel="external" href="https://clang.llvm.org/docs/UsersManual.html#relocatable-pch-files">sysroot for the
+precompiled
+headers</a>.</p>
+<h2 id="plugging-it-into-bindgen">Plugging it into bindgen<a class="zola-anchor" href="#plugging-it-into-bindgen" aria-label="Anchor link for: plugging-it-into-bindgen">§</a>
+</h2>
+<p>So, this is the meat of this project and is really quite dense. I've added some
+spacing to give you an idea of the groupings.</p>
+<pre class="giallo" style="color: #D5CED9; background-color: #23262E;"><code data-lang="rust"><span class="giallo-l"><span style="color: #FFE66D;">println!</span><span>(</span><span style="color: #96E072;">&quot;cargo:rustc-link-lib=framework=UIKit&quot;</span><span>);</span></span>
+<span class="giallo-l"><span style="color: #C74DED;">let</span><span style="color: #00E8C6;"> builder</span><span style="color: #EE5D43;"> =</span><span> bindgen</span><span style="color: #EE5D43;">::</span><span style="color: #FFE66D;">Builder</span><span style="color: #EE5D43;">::</span><span style="color: #FFE66D;">default</span><span>()</span></span>
+<span class="giallo-l"><span style="color: #EE5D43;">    .</span><span style="color: #FFE66D;">rustfmt_bindings</span><span>(</span><span style="color: #EE5D43;">true</span><span>)</span></span>
+<span class="giallo-l"><span style="color: #EE5D43;">    .</span><span style="color: #FFE66D;">header_contents</span><span>(</span><span style="color: #96E072;">&quot;UIKit.h&quot;</span><span>,</span><span style="color: #96E072;"> &quot;#include&lt;UIKit/UIKit.h&gt;&quot;</span><span>)</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #EE5D43;">    .</span><span style="color: #FFE66D;">clang_args</span><span>(</span><span style="color: #EE5D43;">&amp;</span><span>[</span><span style="color: #EE5D43;">&amp;</span><span style="color: #FFE66D;">format!</span><span>(</span><span style="color: #96E072;">&quot;--target=</span><span style="color: #F92672;">{}</span><span style="color: #96E072;">&quot;</span><span>,</span><span style="color: #00E8C6;"> target</span><span>)])</span></span>
+<span class="giallo-l"><span style="color: #EE5D43;">    .</span><span style="color: #FFE66D;">clang_args</span><span>(</span><span style="color: #EE5D43;">&amp;</span><span>[</span><span style="color: #96E072;">&quot;-isysroot&quot;</span><span>,</span><span style="color: #00E8C6;"> sdk_path</span><span>])</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #EE5D43;">    .</span><span style="color: #FFE66D;">block_extern_crate</span><span>(</span><span style="color: #EE5D43;">true</span><span>)</span></span>
+<span class="giallo-l"><span style="color: #EE5D43;">    .</span><span style="color: #FFE66D;">generate_block</span><span>(</span><span style="color: #EE5D43;">true</span><span>)</span></span>
+<span class="giallo-l"><span style="color: #EE5D43;">    .</span><span style="color: #FFE66D;">clang_args</span><span>(</span><span style="color: #EE5D43;">&amp;</span><span>[</span><span style="color: #96E072;">&quot;-fblocks&quot;</span><span>])</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #EE5D43;">    .</span><span style="color: #FFE66D;">objc_extern_crate</span><span>(</span><span style="color: #EE5D43;">true</span><span>)</span></span>
+<span class="giallo-l"><span style="color: #EE5D43;">    .</span><span style="color: #FFE66D;">clang_args</span><span>(</span><span style="color: #EE5D43;">&amp;</span><span>[</span><span style="color: #96E072;">&quot;-x&quot;</span><span>,</span><span style="color: #96E072;"> &quot;objective-c&quot;</span><span>])</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #EE5D43;">    .</span><span style="color: #FFE66D;">blacklist_item</span><span>(</span><span style="color: #96E072;">&quot;timezone&quot;</span><span>)</span></span>
+<span class="giallo-l"><span style="color: #EE5D43;">    .</span><span style="color: #FFE66D;">blacklist_item</span><span>(</span><span style="color: #96E072;">&quot;IUIStepper&quot;</span><span>)</span></span>
+<span class="giallo-l"><span style="color: #EE5D43;">    .</span><span style="color: #FFE66D;">blacklist_function</span><span>(</span><span style="color: #96E072;">&quot;dividerImageForLeftSegmentState_rightSegmentState_&quot;</span><span>)</span></span>
+<span class="giallo-l"><span style="color: #EE5D43;">    .</span><span style="color: #FFE66D;">blacklist_item</span><span>(</span><span style="color: #96E072;">&quot;objc_object&quot;</span><span>);</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #C74DED;">let</span><span style="color: #00E8C6;"> bindings</span><span style="color: #EE5D43;"> =</span><span style="color: #00E8C6;"> builder</span><span style="color: #EE5D43;">.</span><span style="color: #FFE66D;">generate</span><span>()</span><span style="color: #EE5D43;">.</span><span style="color: #FFE66D;">expect</span><span>(</span><span style="color: #96E072;">&quot;unable to generate bindings&quot;</span><span>);</span></span></code></pre>
+<p>In my actual of uikit-sys, I've got this section littered with comments.</p>
+<ul>
+<li>
+<p>The <code>cargo:rustc-link-lib=framework=UIKit</code> is how <a rel="external" href="https://doc.rust-lang.org/cargo/reference/build-scripts.html#rustc-link-lib">cargo tell's rustc to link
+against</a>
+the UIKit framework.</p>
+</li>
+<li>
+<p><code>rustfmt_bindings(true)</code> is pretty obvious and also optional. I'd strongly
+recommend this because you will almost certainly be jumping around the
+generated bindings to figure out what types you will need when trying to use
+this.</p>
+</li>
+<li>
+<p><code>.header_contents("UIKit.h", "#include&lt;UIKit/UIKit.h&gt;")</code> is pretty obvious. I
+think you might be able to use <code>.header("UIKit.h")</code> but I've had issues with it.</p>
+</li>
+<li>
+<p>These two were mentioned in the previous sections about target and sdk path.</p>
+</li>
+</ul>
+<pre class="giallo" style="color: #D5CED9; background-color: #23262E;"><code data-lang="rust"><span class="giallo-l"><span style="color: #EE5D43;">    .</span><span style="color: #FFE66D;">clang_args</span><span>(</span><span style="color: #EE5D43;">&amp;</span><span>[</span><span style="color: #EE5D43;">&amp;</span><span style="color: #FFE66D;">format!</span><span>(</span><span style="color: #96E072;">&quot;--target=</span><span style="color: #F92672;">{}</span><span style="color: #96E072;">&quot;</span><span>,</span><span style="color: #00E8C6;"> target</span><span>)])</span></span>
+<span class="giallo-l"><span style="color: #EE5D43;">    .</span><span style="color: #FFE66D;">clang_args</span><span>(</span><span style="color: #EE5D43;">&amp;</span><span>[</span><span style="color: #96E072;">&quot;-isysroot&quot;</span><span>,</span><span style="color: #00E8C6;"> sdk_path</span><span>])</span></span></code></pre>
+<ul>
+<li>
+<p><code>.block_extern_crate(true).generate_block(true).clang_args(&amp;["-fblocks"])</code> is
+about adding generation of
+<a rel="external" href="https://en.wikipedia.org/wiki/Blocks_%28C_language_extension%29">Blocks</a> that
+are commonly used with objective-c frameworks.</p>
+</li>
+<li>
+<p><code>.objc_extern_crate(true).clang_args(&amp;["-x", "objective-c"])</code> is to tell
+clang to return the objective-c AST to bindgen and actually produce the
+bindings we want for this project.</p>
+</li>
+<li>
+<p>The <code>objc_extern_crate(true)</code> and <code>block_extern_crate(true)</code> tell bindgen
+that prfix the generation with <code>extern crate objc</code> and <code> extern crate block</code>.</p>
+</li>
+</ul>
+<h3 id="blacklists">Blacklists<a class="zola-anchor" href="#blacklists" aria-label="Anchor link for: blacklists">§</a>
+</h3>
+<p>So, this is one of the more annoying issues with generating bindings that one can pretty
+much only learn by trial and error. If you uncomment any of these you will
+almost certainly have an error:</p>
+<pre class="giallo" style="color: #D5CED9; background-color: #23262E;"><code data-lang="rust"><span class="giallo-l"><span style="color: #EE5D43;">    .</span><span style="color: #FFE66D;">blacklist_item</span><span>(</span><span style="color: #96E072;">&quot;timezone&quot;</span><span>)</span></span>
+<span class="giallo-l"><span style="color: #EE5D43;">    .</span><span style="color: #FFE66D;">blacklist_item</span><span>(</span><span style="color: #96E072;">&quot;IUIStepper&quot;</span><span>)</span></span>
+<span class="giallo-l"><span style="color: #EE5D43;">    .</span><span style="color: #FFE66D;">blacklist_function</span><span>(</span><span style="color: #96E072;">&quot;dividerImageForLeftSegmentState_rightSegmentState_&quot;</span><span>)</span></span>
+<span class="giallo-l"><span style="color: #EE5D43;">    .</span><span style="color: #FFE66D;">blacklist_item</span><span>(</span><span style="color: #96E072;">&quot;objc_object&quot;</span><span>);</span></span></code></pre>
+<p>Here's pretty much the issue with each:</p>
+<ul>
+<li>time.h as has a variable called <code>timezone</code> that conflicts with some of the
+objective-c calls from <code>NSCalendar.h</code> in the Foundation framework.</li>
+<li>The issues with <code>IUIStepper</code> and
+<code>dividerImageForLeftSegmentState_rightSegmentState_</code> are documented at
+<a rel="external" href="https://github.com/rust-lang/rust-bindgen/issues/1705">rust-lang/rust-bindgen#1705</a>.</li>
+<li><code>objc_object</code> is a bit odd and is because <a rel="external" href="http://sasheldon.com/rust-objc/objc/runtime/struct.Object.html"><code>Object</code>doesn't implement
+<code>Copy</code></a>. If you look at the generation, it's not used anywhere else so it's safe to say that you don't really need it.</li>
+</ul>
+<p>This is a much smaller list than I had when I first started this project due to
+some of the fixes I added to bindgen.</p>
+<h1 id="let-s-build-it">Let's build it!<a class="zola-anchor" href="#let-s-build-it" aria-label="Anchor link for: let-s-build-it">§</a>
+</h1>
+<p>To build this whole thing, we now run <code>cargo build --target aarch64-apple-ios</code> and wait for an unfortunately long time. The long compile
+time is because UIKit relies on a number of other Objective-c frameworks.</p>
+<p>You can find the code for this exact example in the <a rel="external" href="https://github.com/simlay/blog-post-examples/tree/master/2020-08-14-build-uikit-sys">build-uikit-sys directory of github.com/simlay/blog-post-examples</a>.</p>
+<h1 id="so-what-have-we-built">So, what have we built?<a class="zola-anchor" href="#so-what-have-we-built" aria-label="Anchor link for: so-what-have-we-built">§</a>
+</h1>
+<p>This is now a uikit-sys crate and has a lot of things in it. Mine has 134133
+lines but it will depend on your iOS SDK.</p>
+<p>To reiterate what's in the <a rel="external" href="https://rust-lang.github.io/rust-bindgen/objc.html">Objective-c section of the bindgen
+guide</a>, for a given
+objective-c class <code>Foo</code>, bindgen will produce a struct <code>Foo</code> and a trait
+<code>IFoo</code>. <code>Foo</code> will impl <code>IFoo</code>. If the objective-c class <code>Foo</code> inherits from
+<code>Bar</code>, the struct <code>Foo</code> will also implement <code>IBar</code> along with any thing that
+the <code>Bar</code> class also inherits. The same idea applies to
+<a rel="external" href="https://www.tutorialspoint.com/objective_c/objective_c_protocols.htm">protocols</a>
+and
+<a rel="external" href="https://www.tutorialspoint.com/objective_c/objective_c_categories.htm">categories</a>.</p>
+<p>The trait <code>IFoo</code> will actually have the getters, setters and methods that
+match the Objective-c class <code>Foo</code>.</p>
+<p>This class <code>Foo</code> is a <code>repr(transparent)</code> which means that it acts as the
+object it returns. As of
+<a rel="external" href="https://github.com/rust-lang/rust-bindgen/pull/1847">rust-lang/rust-bindgen#1847</a>,
+this means that if a objective-c method returns a <code>Baz</code> class, the rust bindgen
+will also return a <code>Baz</code> struct.</p>
+<p>I could add many more words here but I will leave that for another time.</p>
+
+
+        
+    
+
+        
+        
+    </article></div>
+    <div class="pagination">
+        <div class="pagination__buttons">
+            </div>
+    </div>
+<footer class="footer">
+                    <div class="footer__inner"><div class="copyright">
+            <span>© 2026 :: Powered by <a href="https://www.getzola.org/">Zola</a></span>
+        </div>
+    <script type="text/javascript" src="https://simlay.net/assets/js/main.js"></script>
+</div>
+                    
+
+                </footer></div>
+        <script data-goatcounter="https://simlay.goatcounter.com/count" async src="//gc.zgo.at/count.js"></script><a rel="me" href="https:&#x2F;&#x2F;hachyderm.io&#x2F;@simlay" /></body>
+</html>
